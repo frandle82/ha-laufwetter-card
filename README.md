@@ -34,7 +34,7 @@ Sicherheitswarnungen sind eine separate Kartenregel, nicht Teil der relativen Sc
 
 Die Karte ruft keine Daten von laufwetter.de ab. Home-Assistant-Anbieter liefern nicht zwingend DWD-MOSMIX-Daten, DWD-`ww`-Codes, Sonnenscheindauer oder die vollständigen Feuchtewerte. Daher ist die Bewertung nur dann mathematisch identisch, wenn diese Eingabedaten und alle nicht veröffentlichten Detailregeln übereinstimmen. Fehlende Niederschlagsmenge und Luftfeuchte werden nicht erfunden; eine reine Regenwahrscheinlichkeit wird nicht als Starkregen gewertet.
 
-Mit `debug: true` zeigt die Karte Rohwerte, normalisierte Werte und verwendete Einheiten. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.
+Mit `debug: true` zeigt die Karte je Prognosestunde Roh-/Normalwerte, Wind und Böen getrennt, Niederschlagsmenge und -wahrscheinlichkeit getrennt, Score-Komponenten, Klassifizierung, Ausschlussgrund sowie eine kurze Diagramm-Scrollspur. Tagesgrenzen, Datum und Uhrzeit verwenden `hass.config.time_zone`, nicht die Browser-Zeitzone. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.
 
 ## Weiterentwicklung
 Repository klonen und `npm install` ausführen. Die Berechnung liegt in `src/scoring.js`, die Wetterdaten-Normalisierung in `src/forecast.js`, die tagesgenaue Tageslichtberechnung in `src/daylight.js` und die Darstellung in `src/card.js`.

@@ -1,4 +1,4 @@
-export function formatDateTime(value) {
+export function formatDateTime(value, timeZone) {
   try {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "–";
@@ -9,18 +9,19 @@ export function formatDateTime(value) {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false
+      hour12: false,
+      timeZone
     }).format(date);
   } catch {
     return "–";
   }
 }
 
-export function formatTime(value) {
+export function formatTime(value, timeZone) {
   try {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return "–";
-    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(date);
   } catch {
     return "–";
   }

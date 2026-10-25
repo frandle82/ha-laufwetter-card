@@ -9,6 +9,10 @@ test("temperature formula follows additive bands", () => {
   assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 22 }, { now: "2026-01-02T12:00:00Z" }).points, 0);
 });
 test("proximity and humidity are additive", () => assert.equal(scoreHour({ datetime: "2026-01-02T12:00:00Z", temperature: 17, humidity: 80 }, { now: "2026-01-01T01:00:00Z" }).points, 3));
+test("proximity uses Home Assistant timezone at a local day boundary", () => {
+  const result = scoreHour({ datetime: "2026-10-25T23:30:00Z", temperature: 17 }, { now: "2026-10-25T22:30:00Z", timeZone: "Europe/Berlin" });
+  assert.equal(result.components.proximity, 1);
+});
 test("night and sun transition receive daylight points", () => {
   const sun = { sunrise: "2026-01-02T07:00:00Z", sunset: "2026-01-02T17:00:00Z" };
   assert.equal(scoreHour({ datetime: "2026-01-02T03:00:00Z", temperature: 17 }, { now: "2026-01-01T00:00:00Z", sun }).points, -5);

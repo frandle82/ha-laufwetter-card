@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { formatDateTime, formatTime } from "../src/format.js";
 import { analyzeRunWindows, localDayOffset, selectRunWindow, qualityLabel } from "../src/windows.js";
 import { daylightPoints, daylightStatus } from "../src/daylight.js";
+import { octoberForecast } from "./fixtures/forecast-october-2026.js";
 
 class TestShadowRoot {
   constructor() { this.html = ""; this.timeline = null; this.date = null; }
   set innerHTML(value) {
     this.html = value;
     this.date = { textContent: "" };
-    this.timeline = { scrollLeft: 0, blocks: [], addEventListener: (_event, listener) => { this.timeline.listener = listener; }, querySelectorAll: () => this.timeline.blocks };
+    this.timeline = { scrollLeft: 0, blocks: [], addEventListener: (event, listener) => { this.timeline[`${event}Listener`] = listener; if (event === "scroll") this.timeline.listener = listener; }, querySelectorAll: () => this.timeline.blocks };
   }
   get innerHTML() { return this.html; }
   querySelector(selector) { return selector === ".timeline" ? this.timeline : selector === ".timeline-date" ? this.date : null; }
@@ -36,11 +37,27 @@ test("formats valid German date/time and survives invalid value", () => {
   assert.match(formatTime("2099-01-01T12:00:00Z"), /:\d{2}$/);
   assert.equal(formatDateTime("invalid"), "–");
 });
+test("formats and groups the repeated Berlin DST hour by configured timezone", () => {
+  assert.equal(formatTime("2026-10-25T00:30:00Z", "Europe/Berlin"), "02:30");
+  assert.equal(formatTime("2026-10-25T01:30:00Z", "Europe/Berlin"), "02:30");
+  assert.equal(localDayOffset("2026-10-25T22:30:00Z", 0, "Europe/Berlin"), "2026-10-25");
+  assert.equal(localDayOffset("2026-10-25T22:30:00Z", 1, "Europe/Berlin"), "2026-10-26");
+});
 test("renders realistic hourly forecast without DateTimeFormat exception", async () => {
   const card = new Card(); card.setConfig(config); card.hass = { states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast } } }) };
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.match(card.shadowRoot.innerHTML, /Heute/);
   assert.match(card.shadowRoot.innerHTML, /Heute/);
+});
+test("renders a debug table with raw values, normalized values and classification", async () => {
+  const card = new Card(); card.setConfig({ ...config, debug: true });
+  card.hass = { states, config: { time_zone: "Europe/Berlin", latitude: 53.63, longitude: 11.41, unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast: octoberForecast } } }) };
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(card.shadowRoot.innerHTML, /Datenfluss und Stundenbewertung/);
+  assert.match(card.shadowRoot.innerHTML, /Gefühlt roh/);
+  assert.match(card.shadowRoot.innerHTML, /Regenwahr/);
+  assert.match(card.shadowRoot.innerHTML, /02:00/);
+  assert.match(card.shadowRoot.innerHTML, /Empfohlen|Möglich|Ungünstig/);
 });
 test("uses configurable title and optional location below the title", () => {
   const card = new Card(); card.setConfig({ ...config, title: "Mein Laufwetter", show_location: true });

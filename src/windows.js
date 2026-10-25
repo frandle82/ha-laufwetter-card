@@ -1,14 +1,6 @@
-const dayKey = value => {
-  const date = new Date(value);
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-};
+import { localDayOffset as offset } from "./time.js";
 
-export function localDayOffset(value, offset = 0) {
-  const date = new Date(value);
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + offset);
-  return dayKey(date);
-}
+export const localDayOffset = (value, dayOffset = 0, timeZone) => offset(value, dayOffset, timeZone);
 
 const daylight = (value, sun = {}) => {
   if (!sun.sunrise || !sun.sunset) return true;

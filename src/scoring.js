@@ -1,15 +1,16 @@
 // Additive, relative heuristic inspired by the public methodology at laufwetter.de/wie_und_warum/.
 const finite = value => Number.isFinite(value) ? value : null;
-const dayKey = date => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-const hourKey = date => `${dayKey(date)}-${date.getHours()}`;
+import { localDayKey, localDayOffset, localParts } from "./time.js";
+const dayKey = (date, timeZone) => localDayKey(date, timeZone);
+const hourKey = (date, timeZone) => `${dayKey(date, timeZone)}-${localParts(date, timeZone)?.hour}`;
 const weatherStates = {
   clear: "sun", "clear-night": "night", cloudy: "cloud", fog: "fog", hail: "hail", lightning: "storm", "lightning-rainy": "storm", partlycloudy: "sun", pouring: "rain", rainy: "rain", snowy: "snow", "snowy-rainy": "freezing-rain", sunny: "sun", windy: "wind", "windy-variant": "wind", exceptional: "exceptional"
 };
 const beaufort = kmh => kmh == null ? null : kmh < 1 ? 0 : kmh < 6 ? 1 : kmh < 12 ? 2 : kmh < 20 ? 3 : kmh < 29 ? 4 : kmh < 39 ? 5 : kmh < 50 ? 6 : kmh < 62 ? 7 : kmh < 75 ? 8 : kmh < 89 ? 9 : kmh < 103 ? 10 : kmh < 118 ? 11 : 12;
-function daytimeBonus(hour, sun = {}) {
+function daytimeBonus(hour, sun = {}, timeZone) {
   const date = new Date(hour.datetime), sunrise = sun.sunrise ? new Date(sun.sunrise) : null, sunset = sun.sunset ? new Date(sun.sunset) : null;
-  if (sunrise && hourKey(date) === hourKey(sunrise) || sunset && hourKey(date) === hourKey(sunset)) return 2;
-  if (sunrise && dayKey(date) === dayKey(sunrise) && Math.abs(date.getHours() - sunrise.getHours()) === 1 || sunset && dayKey(date) === dayKey(sunset) && Math.abs(date.getHours() - sunset.getHours()) === 1) return 1;
+  if (sunrise && hourKey(date, timeZone) === hourKey(sunrise, timeZone) || sunset && hourKey(date, timeZone) === hourKey(sunset, timeZone)) return 2;
+  if (sunrise && dayKey(date, timeZone) === dayKey(sunrise, timeZone) && Math.abs(Number(localParts(date, timeZone)?.hour) - Number(localParts(sunrise, timeZone)?.hour)) === 1 || sunset && dayKey(date, timeZone) === dayKey(sunset, timeZone) && Math.abs(Number(localParts(date, timeZone)?.hour) - Number(localParts(sunset, timeZone)?.hour)) === 1) return 1;
   if (sunrise && sunset && (date < sunrise || date >= sunset)) return -16;
   return null;
 }
@@ -23,9 +24,9 @@ function precipitationPoints(hour, weather) {
 export function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : new Date();
-  const components = { proximity: date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 86400000).toDateString() ? 1 : 0 };
+  const components = { proximity: dayKey(date, context.timeZone) === dayKey(now, context.timeZone) ? 2 : dayKey(date, context.timeZone) === localDayOffset(now, 1, context.timeZone) ? 1 : 0 };
   let points = components.proximity;
-  const daylight = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun); components.daylight = daylight; if (daylight != null) points += daylight;
+  const daylight = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun, context.timeZone); components.daylight = daylight; if (daylight != null) points += daylight;
   components.temperature = temperature == null ? null : temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19); if (components.temperature != null) points += components.temperature;
   components.humidity = humidity == null ? null : -humidity / 10; if (components.humidity != null) points += components.humidity;
   const bft = beaufort(wind);
@@ -43,11 +44,11 @@ export function scoreHour(hour = {}, context = {}) {
 }
 export function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 86400000 : 0;
-  const days = new Set(hours.map(hour => dayKey(new Date(hour.datetime)))).size;
+  const days = new Set(hours.map(hour => dayKey(new Date(hour.datetime), options.timeZone))).size;
   const selectThreshold = (minimumHours, minimumDays) => {
     let low = -10, high = 20, threshold = -10;
     while (low <= high) {
-      const middle = Math.floor((low + high) / 2), marked = hours.filter(hour => hour.points > middle), markedDays = new Set(marked.map(hour => dayKey(new Date(hour.datetime))));
+      const middle = Math.floor((low + high) / 2), marked = hours.filter(hour => hour.points > middle), markedDays = new Set(marked.map(hour => dayKey(new Date(hour.datetime), options.timeZone)));
       if (marked.length >= minimumHours && markedDays.size >= minimumDays) { threshold = middle; low = middle + 1; } else high = middle - 1;
     }
     return { threshold, marked: hours.filter(hour => hour.points > threshold) };

@@ -1,7 +1,35 @@
+// src/time.js
+var formatter = (timeZone, options) => {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, ...options });
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", options);
+  }
+};
+function localParts(value, timeZone) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = formatter(timeZone, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+function localDayKey(value, timeZone) {
+  const parts = localParts(value, timeZone);
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : "";
+}
+function localDayOffset(value, offset = 0, timeZone) {
+  const parts = localParts(value, timeZone);
+  if (!parts) return "";
+  const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + offset));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+function localHour(value, timeZone) {
+  return localParts(value, timeZone)?.hour || "\u2013";
+}
+
 // src/scoring.js
 var finite = (value) => Number.isFinite(value) ? value : null;
-var dayKey = (date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-var hourKey = (date) => `${dayKey(date)}-${date.getHours()}`;
+var dayKey = (date, timeZone) => localDayKey(date, timeZone);
+var hourKey = (date, timeZone) => `${dayKey(date, timeZone)}-${localParts(date, timeZone)?.hour}`;
 var weatherStates = {
   clear: "sun",
   "clear-night": "night",
@@ -21,10 +49,10 @@ var weatherStates = {
   exceptional: "exceptional"
 };
 var beaufort = (kmh) => kmh == null ? null : kmh < 1 ? 0 : kmh < 6 ? 1 : kmh < 12 ? 2 : kmh < 20 ? 3 : kmh < 29 ? 4 : kmh < 39 ? 5 : kmh < 50 ? 6 : kmh < 62 ? 7 : kmh < 75 ? 8 : kmh < 89 ? 9 : kmh < 103 ? 10 : kmh < 118 ? 11 : 12;
-function daytimeBonus(hour, sun = {}) {
+function daytimeBonus(hour, sun = {}, timeZone) {
   const date = new Date(hour.datetime), sunrise = sun.sunrise ? new Date(sun.sunrise) : null, sunset = sun.sunset ? new Date(sun.sunset) : null;
-  if (sunrise && hourKey(date) === hourKey(sunrise) || sunset && hourKey(date) === hourKey(sunset)) return 2;
-  if (sunrise && dayKey(date) === dayKey(sunrise) && Math.abs(date.getHours() - sunrise.getHours()) === 1 || sunset && dayKey(date) === dayKey(sunset) && Math.abs(date.getHours() - sunset.getHours()) === 1) return 1;
+  if (sunrise && hourKey(date, timeZone) === hourKey(sunrise, timeZone) || sunset && hourKey(date, timeZone) === hourKey(sunset, timeZone)) return 2;
+  if (sunrise && dayKey(date, timeZone) === dayKey(sunrise, timeZone) && Math.abs(Number(localParts(date, timeZone)?.hour) - Number(localParts(sunrise, timeZone)?.hour)) === 1 || sunset && dayKey(date, timeZone) === dayKey(sunset, timeZone) && Math.abs(Number(localParts(date, timeZone)?.hour) - Number(localParts(sunset, timeZone)?.hour)) === 1) return 1;
   if (sunrise && sunset && (date < sunrise || date >= sunset)) return -16;
   return null;
 }
@@ -38,9 +66,9 @@ function precipitationPoints(hour, weather) {
 function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : /* @__PURE__ */ new Date();
-  const components = { proximity: date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 864e5).toDateString() ? 1 : 0 };
+  const components = { proximity: dayKey(date, context.timeZone) === dayKey(now, context.timeZone) ? 2 : dayKey(date, context.timeZone) === localDayOffset(now, 1, context.timeZone) ? 1 : 0 };
   let points = components.proximity;
-  const daylight2 = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun);
+  const daylight2 = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun, context.timeZone);
   components.daylight = daylight2;
   if (daylight2 != null) points += daylight2;
   components.temperature = temperature == null ? null : temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
@@ -67,11 +95,11 @@ function scoreHour(hour = {}, context = {}) {
 }
 function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 864e5 : 0;
-  const days = new Set(hours.map((hour) => dayKey(new Date(hour.datetime)))).size;
+  const days = new Set(hours.map((hour) => dayKey(new Date(hour.datetime), options.timeZone))).size;
   const selectThreshold = (minimumHours2, minimumDays2) => {
     let low = -10, high = 20, threshold = -10;
     while (low <= high) {
-      const middle = Math.floor((low + high) / 2), marked = hours.filter((hour) => hour.points > middle), markedDays = new Set(marked.map((hour) => dayKey(new Date(hour.datetime))));
+      const middle = Math.floor((low + high) / 2), marked = hours.filter((hour) => hour.points > middle), markedDays = new Set(marked.map((hour) => dayKey(new Date(hour.datetime), options.timeZone)));
       if (marked.length >= minimumHours2 && markedDays.size >= minimumDays2) {
         threshold = middle;
         low = middle + 1;
@@ -127,7 +155,7 @@ function unitSnapshot(hass, entityId) {
 }
 
 // src/format.js
-function formatDateTime(value) {
+function formatDateTime(value, timeZone) {
   try {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "\u2013";
@@ -138,33 +166,25 @@ function formatDateTime(value) {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false
+      hour12: false,
+      timeZone
     }).format(date);
   } catch {
     return "\u2013";
   }
 }
-function formatTime(value) {
+function formatTime(value, timeZone) {
   try {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return "\u2013";
-    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(date);
   } catch {
     return "\u2013";
   }
 }
 
 // src/windows.js
-var dayKey2 = (value) => {
-  const date = new Date(value);
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-};
-function localDayOffset(value, offset = 0) {
-  const date = new Date(value);
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + offset);
-  return dayKey2(date);
-}
+var localDayOffset2 = (value, dayOffset = 0, timeZone) => localDayOffset(value, dayOffset, timeZone);
 var daylight = (value, sun = {}) => {
   if (!sun.sunrise || !sun.sunset) return true;
   const date = new Date(value), sunrise = new Date(sun.sunrise), sunset = new Date(sun.sunset);
@@ -219,15 +239,17 @@ function daySummary(hours, options = {}) {
 }
 
 // src/daylight.js
-var dayOfYear = (date) => Math.floor((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 0)) / 864e5);
+var dayOfYear = (year, month, day) => Math.floor((Date.UTC(year, month - 1, day) - Date.UTC(year, 0, 0)) / 864e5);
 var solarTimes = (value, config = {}) => {
   const latitude = Number(config.latitude), longitude = Number(config.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
-  const date = new Date(value), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(date) + 10) / 365) * Math.PI / 180;
+  const parts = localParts(value, config.time_zone);
+  if (!parts) return null;
+  const year = Number(parts.year), month = Number(parts.month), day = Number(parts.day), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(year, month, day) + 10) / 365) * Math.PI / 180;
   const cosine = -Math.tan(latitude * Math.PI / 180) * Math.tan(declination);
   if (cosine >= 1 || cosine <= -1) return { polar: cosine >= 1 ? "night" : "day" };
   const daylightMinutes = Math.acos(cosine) * 720 / Math.PI;
-  const noon = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12) - longitude * 24e4;
+  const noon = Date.UTC(year, month - 1, day, 12) - longitude * 24e4;
   return { sunrise: noon - daylightMinutes * 6e4, sunset: noon + daylightMinutes * 6e4 };
 };
 function daylightStatus(hour, config = {}) {
@@ -253,27 +275,27 @@ var CARD_STYLES = `
 .card-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:1px solid var(--divider-color)}.card-title{font-size:16px;font-weight:600;line-height:1.25}.header-icon,.weather-icon{width:18px;height:18px;color:var(--secondary-text-color)}.location,.meta{font-size:12px;color:var(--secondary-text-color)}.location{display:block;margin-top:2px}
 .day-summary{position:relative;padding:10px 0;border-bottom:1px solid var(--divider-color)}.day-summary__title{margin:0;font-size:13px;font-weight:600;line-height:1.3}.day-summary__window{margin-top:4px;font-size:18px;font-weight:600;line-height:1.3}.day-summary__metrics{margin-top:3px;padding-right:24px;font-size:12px;color:var(--secondary-text-color);line-height:1.4}.weather-icon{position:absolute;right:0;top:13px}
 .timeline-section{padding:10px 0;border-bottom:1px solid var(--divider-color)}.timeline-heading{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600}.timeline-heading time{font-weight:400;color:var(--secondary-text-color)}.timeline{display:flex;align-items:flex-start;gap:3px;overflow-x:auto;margin:0 -2px;padding:0 2px 3px;scroll-snap-type:x proximity}.timeline-hour{min-width:24px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;line-height:1;scroll-snap-align:start}.timeline-hour--day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:3px}.timeline-bar{width:100%;height:34px;box-sizing:border-box;border-radius:4px}.timeline-label{color:var(--secondary-text-color)}.timeline-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px 8px;margin-top:8px;font-size:10px;color:var(--secondary-text-color)}.timeline-legend span::before{content:"";display:inline-block;width:7px;height:7px;margin-right:3px;border-radius:2px;background:currentColor}.legend-night{color:#8b95a5}.legend-bad{color:#d66b61}.legend-ok{color:#e9b44c}.legend-best{color:#22a06b}
-.state{margin-top:8px;font-size:12px}.state--error{color:var(--error-color)}details{margin-top:10px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:360px){ha-card{padding:12px}.day-summary__window{font-size:17px}.timeline-hour{min-width:22px}}
+.state{margin-top:8px;font-size:12px}.state--error{color:var(--error-color)}details{margin-top:10px}.debug p{font-size:11px;line-height:1.4}.debug-table{max-height:280px;overflow:auto;border:1px solid var(--divider-color)}table{border-collapse:collapse;font-size:10px;white-space:nowrap}th,td{padding:4px 6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color)}th{position:sticky;top:0;background:var(--ha-card-background,var(--card-background-color));font-weight:600}small{color:var(--secondary-text-color)}@media(max-width:360px){ha-card{padding:12px}.day-summary__window{font-size:17px}.timeline-hour{min-width:22px}}
 `;
 
 // src/card.js
 var CARD_VERSION = "0.2.0";
 var esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-var dayName = (value) => {
+var dayName = (value, timeZone) => {
   try {
-    return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(new Date(value));
+    return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone }).format(new Date(value));
   } catch {
     return "Unbekannter Tag";
   }
 };
-var shortDate = (value) => {
+var shortDate = (value, timeZone) => {
   try {
-    return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "long" }).format(new Date(value));
+    return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "long", timeZone }).format(new Date(value));
   } catch {
     return "";
   }
 };
-var rangeText = (window2) => `${formatTime(window2.hours[0].datetime)}\u2013${formatTime(new Date(Date.parse(window2.hours.at(-1).datetime) + 60 * 6e4))} Uhr`;
+var rangeText = (window2, timeZone) => `${formatTime(window2.hours[0].datetime, timeZone)}\u2013${formatTime(new Date(Date.parse(window2.hours.at(-1).datetime) + 60 * 6e4), timeZone)} Uhr`;
 var metrics = (hours) => {
   if (!hours?.length) return "Keine Daten";
   const values = (key) => hours.map((hour) => hour[key]).filter((value) => value != null);
@@ -290,12 +312,27 @@ var weatherIcon = (hours) => {
   return "mdi:weather-partly-cloudy";
 };
 var renderHeader = (config) => `<header class="card-header"><div><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</div><ha-icon class="header-icon" icon="mdi:run"></ha-icon></header>`;
-var renderDaySummary = (label, hours, summary, message) => {
+var renderDaySummary = (label, hours, summary, message, timeZone) => {
   const summaryHours = summary.window?.hours || hours;
-  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.window ? rangeText(summary.window) : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
+  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime, timeZone)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.window ? rangeText(summary.window, timeZone) : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
 };
 var timelineColor = (hour, selected, isNight) => isNight(hour) ? "#8b95a5" : hasSevereRisk(hour) || !hour.marked ? "#d66b61" : selected.has(hour.datetime) ? "#22a06b" : "#e9b44c";
-var renderTimeline = (hours, selected, isNight) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time class="timeline-date">${esc(shortDate(hours[0].datetime))}</time>` : ""}</div><div class="timeline" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(hours[index - 1].datetime).getDate() ? " timeline-hour--day-start" : ""}" data-date="${esc(shortDate(hour.datetime))}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${new Date(hour.datetime).getHours()}</span></div>`).join("") : "<span class='meta'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ung\xFCnstig</span><span class="legend-ok">M\xF6glich</span><span class="legend-best">Empfohlen</span></div></section>`;
+var renderTimeline = (hours, selected, isNight, timeZone) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time class="timeline-date">${esc(shortDate(hours[0].datetime, timeZone))}</time>` : ""}</div><div class="timeline" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || localDayKey(hour.datetime, timeZone) !== localDayKey(hours[index - 1].datetime, timeZone) ? " timeline-hour--day-start" : ""}" data-date="${esc(shortDate(hour.datetime, timeZone))}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime, timeZone))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${localHour(hour.datetime, timeZone)}</span></div>`).join("") : "<span class='meta'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ung\xFCnstig</span><span class="legend-ok">M\xF6glich</span><span class="legend-best">Empfohlen</span></div></section>`;
+var debugValue = (value) => value == null || value === "" ? "\u2013" : String(value);
+var debugClass = (hour, selected, daylight2) => daylight2(hour) === "night" ? "Ung\xFCnstig (Nacht)" : hasSevereRisk(hour) ? "Ung\xFCnstig (Risiko)" : selected.has(hour.datetime) ? "Empfohlen" : hour.marked ? "M\xF6glich" : "Ung\xFCnstig (Schwelle)";
+var debugReason = (hour, summaries) => {
+  const instant = Date.parse(hour.datetime);
+  const exclusion = summaries.flatMap((summary) => summary.exclusions || []).find((item) => instant >= Date.parse(item.start) && instant <= Date.parse(item.end));
+  return hasSevereRisk(hour) ? hour.risks?.join(", ") || "offizielle Wetterwarnung" : exclusion?.reason || (hour.marked ? "nicht Teil des besten Fensters" : "nicht relativ markiert");
+};
+var renderDebug = ({ entity, units, timeZone, scoredResult, hours, selected, daylight: daylight2, summaries, rawForecast, error, scrollTrace }) => {
+  const raw = new Map((rawForecast || []).map((hour) => [hour.datetime, hour]));
+  const rows = hours.map((hour) => {
+    const source = raw.get(hour.datetime) || {}, components = Object.entries(hour.components || {}).map(([key, value]) => `${key}: ${debugValue(value)}`).join(", ");
+    return `<tr><td>${esc(formatDateTime(hour.datetime, timeZone))}<br><small>${esc(hour.datetime)}</small></td><td>${esc(debugValue(source.temperature))} \u2192 ${esc(debugValue(hour.temperature))}</td><td>${esc(debugValue(source.apparent_temperature))}</td><td>${esc(debugValue(source.wind_speed))} \u2192 ${esc(debugValue(hour.wind_speed))}</td><td>${esc(debugValue(source.wind_gust_speed))} \u2192 ${esc(debugValue(hour.wind_gust_speed))}</td><td>${esc(debugValue(source.precipitation))} \u2192 ${esc(debugValue(hour.precipitation))}</td><td>${esc(debugValue(source.precipitation_probability))}</td><td>${esc(debugValue(hour.humidity))}</td><td>${esc(debugValue(source.condition))} / ${esc(debugValue(hour.weatherClass))} / ${esc(daylight2(hour))}</td><td>${esc(components)}</td><td>${esc(debugValue(hour.points))}</td><td>${esc(debugClass(hour, selected, daylight2))}</td><td>${esc(debugReason(hour, summaries))}</td></tr>`;
+  }).join("");
+  return `<details class="debug"><summary>Debug: Datenfluss und Stundenbewertung</summary><p>Entit\xE4t: ${esc(entity)} \xB7 Zeitzone: ${esc(timeZone || "Browser")} \xB7 Auswahl: ${esc(scoredResult.selection.mode)} \xB7 Schwelle: ${esc(scoredResult.selection.threshold)} \xB7 Einheiten: ${esc(JSON.stringify(units || {}))}</p><p>Diagramm: ${esc((scrollTrace || []).map((item) => `${item.event}=${item.left}`).join(" \u2192 ") || "noch kein Scroll-Ereignis")}</p><div class="debug-table"><table><thead><tr><th>Zeit (lokal / UTC)</th><th>Temperatur roh \u2192 norm.</th><th>Gef\xFChlt roh</th><th>Wind roh \u2192 norm.</th><th>B\xF6en roh \u2192 norm.</th><th>Regen roh \u2192 norm.</th><th>Regenwahr.</th><th>Feuchte</th><th>Wetter / Klasse / Licht</th><th>Komponenten</th><th>Score</th><th>Status</th><th>Grund</th></tr></thead><tbody>${rows}</tbody></table></div>${error ? `<p>Fehler: ${esc(error)}</p>` : ""}</details>`;
+};
 var LaufwetterCard = class extends HTMLElement {
   constructor() {
     super();
@@ -308,6 +345,11 @@ var LaufwetterCard = class extends HTMLElement {
     this.timelineScrollLeft = 0;
     this.scored = null;
     this.timelineFrame = null;
+    this.scrollTrace = [];
+  }
+  traceScroll(event, timeline) {
+    if (!this.config?.debug) return;
+    this.scrollTrace = [...this.scrollTrace.slice(-11), { event, left: Math.round(timeline?.scrollLeft ?? this.timelineScrollLeft) }];
   }
   disconnectedCallback() {
     this.requestId++;
@@ -372,6 +414,7 @@ var LaufwetterCard = class extends HTMLElement {
   captureTimelineScroll() {
     const timeline = this.shadowRoot?.querySelector?.(".timeline");
     if (timeline) this.timelineScrollLeft = timeline.scrollLeft;
+    this.traceScroll("render-capture", timeline);
     if (this.timelineFrame !== null && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame);
     this.timelineFrame = null;
   }
@@ -385,9 +428,11 @@ var LaufwetterCard = class extends HTMLElement {
     const timeline = this.shadowRoot?.querySelector?.(".timeline");
     if (!timeline) return;
     timeline.scrollLeft = this.timelineScrollLeft;
+    this.traceScroll("render-restore", timeline);
     this.updateTimelineDate(timeline);
     timeline.addEventListener?.("scroll", () => {
       this.timelineScrollLeft = timeline.scrollLeft;
+      this.traceScroll("scroll", timeline);
       if (this.timelineFrame !== null) return;
       const update = () => {
         this.timelineFrame = null;
@@ -396,16 +441,17 @@ var LaufwetterCard = class extends HTMLElement {
       if (globalThis.requestAnimationFrame) this.timelineFrame = globalThis.requestAnimationFrame(update);
       else update();
     });
+    timeline.addEventListener?.("pointerdown", () => this.traceScroll("pointerdown", timeline));
   }
   buildView() {
-    const now = Date.now(), daylight2 = (hour) => daylightStatus(hour, this._hass?.config);
-    const scoringDay = localDayOffset(now);
-    if (!this.scored || this.scored.day !== scoringDay) this.scored = { day: scoringDay, result: scoreForecast(this.forecast, { now, daylightPoints: (hour) => daylightPoints(hour, this._hass?.config) }) };
+    const now = Date.now(), timeZone = this._hass?.config?.time_zone, daylight2 = (hour) => daylightStatus(hour, this._hass?.config);
+    const scoringDay = localDayOffset2(now, 0, timeZone);
+    if (!this.scored || this.scored.day !== scoringDay) this.scored = { day: scoringDay, result: scoreForecast(this.forecast, { now, timeZone, daylightPoints: (hour) => daylightPoints(hour, this._hass?.config) }) };
     const scoredResult = this.scored.result;
     const markedHours = new Set(scoredResult.selection.marked.map((hour) => hour.datetime));
     const hours = scoredResult.hours.map((hour) => ({ ...hour, marked: markedHours.has(hour.datetime) }));
-    const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
-    const today = hours.filter((hour) => localDayOffset(hour.datetime) === todayKey), tomorrow = hours.filter((hour) => localDayOffset(hour.datetime) === tomorrowKey);
+    const todayKey = localDayOffset2(now, 0, timeZone), tomorrowKey = localDayOffset2(now, 1, timeZone);
+    const today = hours.filter((hour) => localDayOffset2(hour.datetime, 0, timeZone) === todayKey), tomorrow = hours.filter((hour) => localDayOffset2(hour.datetime, 0, timeZone) === tomorrowKey);
     const options = { daylightStatus: daylight2, allowNightRuns: this.config.allow_night_runs, requireMarked: true, duration: this.config.duration };
     const todayFullSummary = daySummary(today, { ...options, includePast: true });
     const todaySummary = daySummary(today, { ...options, now });
@@ -414,14 +460,14 @@ var LaufwetterCard = class extends HTMLElement {
     const todayMessage = !today.length ? "Heute keine Prognose verf\xFCgbar." : todaySummary.window ? "" : todayFullSummary.window && historyAvailable ? "Alle empfohlenen Laufzeiten f\xFCr heute sind vorbei." : "Heute keine empfohlenen Laufzeiten.";
     const tomorrowMessage = !tomorrow.length ? "Morgen keine Prognose verf\xFCgbar." : "Morgen keine empfohlenen Laufzeiten.";
     const selected = new Set([...todaySummary.window?.hours || [], ...tomorrowSummary.window?.hours || []].map((hour) => hour.datetime));
-    return { daylight: daylight2, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours: hours.filter((hour) => Date.parse(hour.datetime) >= now) };
+    return { daylight: daylight2, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours: hours.filter((hour) => Date.parse(hour.datetime) >= now) };
   }
   render() {
     if (!this.shadowRoot || !this.config) return;
     this.captureTimelineScroll();
-    const { daylight: daylight2, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours } = this.buildView();
-    const debug = this.config.debug ? `<details><summary>Debug</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, threshold: scoredResult.selection.threshold, selection: scoredResult.selection.mode, exclusions: { todayFull: todayFullSummary.exclusions, todayAvailable: todaySummary.exclusions, tomorrow: tomorrowSummary.exclusions }, hours: hours.map((hour) => ({ datetime: hour.datetime, temperature: hour.temperature, wind_speed: hour.wind_speed, precipitation: hour.precipitation, humidity: hour.humidity, condition: hour.condition, daylight: daylight2(hour), components: hour.components, score: hour.points, marked: hour.marked, selected: selected.has(hour.datetime) })), error: this.error }, null, 2))}</pre></details>` : "";
-    this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><ha-card>${renderHeader(this.config)}${renderDaySummary("Heute", today, todaySummary, todayMessage)}${renderTimeline(chartHours, selected, (hour) => daylight2(hour) === "night")}${renderDaySummary("Morgen", tomorrow, tomorrowSummary, tomorrowMessage)}${this.loading ? `<div class="state meta">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="state state--error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
+    const { daylight: daylight2, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours } = this.buildView();
+    const debug = this.config.debug ? renderDebug({ entity: this.config.entity, units: this.units, timeZone, scoredResult, hours, selected, daylight: daylight2, summaries: [todayFullSummary, todaySummary, tomorrowSummary], rawForecast: this.rawForecast, error: this.error, scrollTrace: this.scrollTrace }) : "";
+    this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><ha-card>${renderHeader(this.config)}${renderDaySummary("Heute", today, todaySummary, todayMessage, timeZone)}${renderTimeline(chartHours, selected, (hour) => daylight2(hour) === "night", timeZone)}${renderDaySummary("Morgen", tomorrow, tomorrowSummary, tomorrowMessage, timeZone)}${this.loading ? `<div class="state meta">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="state state--error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
     this.bindTimeline();
   }
   getCardSize() {
