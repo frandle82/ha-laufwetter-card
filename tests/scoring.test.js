@@ -32,8 +32,19 @@ test("weather states map without inventing rain intensity", () => { const result
 test("danger overrides relative score", () => assert.ok(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 17, condition: "lightning" }, { now: "2026-01-02T00:00:00Z" }).risks.length));
 test("ten-day selection finds highest threshold with five days", () => {
   const hours = Array.from({ length: 10 * 24 }, (_, index) => { const date = new Date(Date.UTC(2026, 0, 1, index)); return { datetime: date.toISOString(), points: index % 24 === 12 ? 20 : index < 120 ? 5 : -20, risks: [] }; });
-  const result = selectRecommendations(hours); assert.equal(result.mode, "10-Tage-Schwelle"); assert.equal(result.threshold, 5); assert.equal(result.marked.length, 125);
+  const result = selectRecommendations(hours); assert.equal(result.mode, "10-Tage-Schwelle"); assert.equal(result.threshold, 4); assert.equal(result.marked.length, 125);
 });
-test("short forecast uses available-period selection", () => { const result = selectRecommendations([{ datetime: "2026-01-01T12:00:00Z", points: 4, risks: [] }]); assert.equal(result.mode, "Verfügbarer Zeitraum"); assert.equal(result.horizonDays, 0); });
+test("falls back to the lower bound when no full-horizon threshold qualifies", () => {
+  const hours = Array.from({ length: 10 * 24 }, (_, index) => ({ datetime: new Date(Date.UTC(2026, 0, 1, index)).toISOString(), points: -20, risks: [] }));
+  const result = selectRecommendations(hours); assert.equal(result.threshold, -10); assert.equal(result.marked.length, 0);
+});
+test("uses a documented proportional threshold for nine-day forecasts", () => {
+  const hours = Array.from({ length: 9 * 24 }, (_, index) => ({ datetime: new Date(Date.UTC(2026, 0, 1, index)).toISOString(), points: index % 24 < 5 ? 4 : -8, risks: [] }));
+  const result = selectRecommendations(hours); assert.equal(result.mode, "Kurzfrist-Schwelle"); assert.equal(result.minimumHours, 25); assert.equal(result.minimumDays, 5); assert.ok(result.marked.every(hour => hour.points > result.threshold));
+});
+test("scales the short-horizon threshold below five days", () => {
+  const hours = Array.from({ length: 3 * 24 }, (_, index) => ({ datetime: new Date(Date.UTC(2026, 0, 1, index)).toISOString(), points: 2, risks: [] }));
+  const result = selectRecommendations(hours); assert.ok(result.days < 5); assert.equal(result.minimumDays, result.days); assert.equal(result.minimumHours, result.days * 5);
+});
 test("forecast is sorted and converts wind units", () => { const [first] = normalizeForecast([{ datetime: "2026-01-01T11:00:00Z", wind_speed: "10", wind_gust_speed: "20" }, { datetime: "2026-01-01T10:00:00Z", wind_speed: "10" }], { wind_speed: "mph" }); assert.equal(first.datetime, "2026-01-01T10:00:00Z"); assert.equal(Math.round(first.wind_speed), 16); });
-test("scoreForecast keeps hour scoring separate from selection", () => { const result = scoreForecast([{ datetime: "2026-01-01T12:00:00Z", temperature: 17 }], { now: "2026-01-01T00:00:00Z" }); assert.equal(typeof result.hours[0].points, "number"); assert.equal(result.selection.mode, "Verfügbarer Zeitraum"); });
+test("scoreForecast keeps hour scoring separate from selection", () => { const result = scoreForecast([{ datetime: "2026-01-01T12:00:00Z", temperature: 17 }], { now: "2026-01-01T00:00:00Z" }); assert.equal(typeof result.hours[0].points, "number"); assert.equal(result.selection.mode, "Kurzfrist-Schwelle"); });

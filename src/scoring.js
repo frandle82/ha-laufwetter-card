@@ -44,12 +44,21 @@ export function scoreHour(hour = {}, context = {}) {
 export function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 86400000 : 0;
   const days = new Set(hours.map(hour => dayKey(new Date(hour.datetime)))).size;
-  if (horizonDays >= 9.5 && days >= 5) {
+  const selectThreshold = (minimumHours, minimumDays) => {
     let low = -10, high = 20, threshold = -10;
-    while (low <= high) { const middle = Math.floor((low + high) / 2), marked = hours.filter(hour => hour.points >= middle), markedDays = new Set(marked.map(hour => dayKey(new Date(hour.datetime)))); if (marked.length >= 25 && markedDays.size >= 5) { threshold = middle; low = middle + 1; } else high = middle - 1; }
-    return { mode: "10-Tage-Schwelle", horizonDays: Math.ceil(horizonDays), threshold, marked: hours.filter(hour => hour.points >= threshold), days };
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2), marked = hours.filter(hour => hour.points > middle), markedDays = new Set(marked.map(hour => dayKey(new Date(hour.datetime))));
+      if (marked.length >= minimumHours && markedDays.size >= minimumDays) { threshold = middle; low = middle + 1; } else high = middle - 1;
+    }
+    return { threshold, marked: hours.filter(hour => hour.points > threshold) };
+  };
+  if (horizonDays >= 9.5 && days >= 5) {
+    const selection = selectThreshold(25, 5);
+    return { mode: "10-Tage-Schwelle", horizonDays: Math.ceil(horizonDays), days, ...selection };
   }
-  const count = options.count || 10;
-  return { mode: "Verfügbarer Zeitraum", horizonDays: Math.max(0, Math.ceil(horizonDays)), threshold: null, marked: [...hours].sort((a, b) => b.points - a.points).slice(0, count), days };
+  // Kurzfrist-Variante: skaliert die Originalmindestmenge von fünf Stunden pro Tag.
+  const minimumDays = Math.min(5, days), minimumHours = Math.min(hours.length, Math.max(1, minimumDays * 5));
+  const selection = selectThreshold(minimumHours, minimumDays);
+  return { mode: "Kurzfrist-Schwelle", horizonDays: Math.max(0, Math.ceil(horizonDays)), days, minimumHours, minimumDays, ...selection };
 }
 export function scoreForecast(forecast, context = {}) { const scored = forecast.map(hour => ({ ...hour, ...scoreHour(hour, context) })); return { hours: scored, selection: selectRecommendations(scored, context) }; }

@@ -68,19 +68,24 @@ function scoreHour(hour = {}, context = {}) {
 function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 864e5 : 0;
   const days = new Set(hours.map((hour) => dayKey(new Date(hour.datetime)))).size;
-  if (horizonDays >= 9.5 && days >= 5) {
+  const selectThreshold = (minimumHours2, minimumDays2) => {
     let low = -10, high = 20, threshold = -10;
     while (low <= high) {
-      const middle = Math.floor((low + high) / 2), marked = hours.filter((hour) => hour.points >= middle), markedDays = new Set(marked.map((hour) => dayKey(new Date(hour.datetime))));
-      if (marked.length >= 25 && markedDays.size >= 5) {
+      const middle = Math.floor((low + high) / 2), marked = hours.filter((hour) => hour.points > middle), markedDays = new Set(marked.map((hour) => dayKey(new Date(hour.datetime))));
+      if (marked.length >= minimumHours2 && markedDays.size >= minimumDays2) {
         threshold = middle;
         low = middle + 1;
       } else high = middle - 1;
     }
-    return { mode: "10-Tage-Schwelle", horizonDays: Math.ceil(horizonDays), threshold, marked: hours.filter((hour) => hour.points >= threshold), days };
+    return { threshold, marked: hours.filter((hour) => hour.points > threshold) };
+  };
+  if (horizonDays >= 9.5 && days >= 5) {
+    const selection2 = selectThreshold(25, 5);
+    return { mode: "10-Tage-Schwelle", horizonDays: Math.ceil(horizonDays), days, ...selection2 };
   }
-  const count = options.count || 10;
-  return { mode: "Verf\xFCgbarer Zeitraum", horizonDays: Math.max(0, Math.ceil(horizonDays)), threshold: null, marked: [...hours].sort((a, b) => b.points - a.points).slice(0, count), days };
+  const minimumDays = Math.min(5, days), minimumHours = Math.min(hours.length, Math.max(1, minimumDays * 5));
+  const selection = selectThreshold(minimumHours, minimumDays);
+  return { mode: "Kurzfrist-Schwelle", horizonDays: Math.max(0, Math.ceil(horizonDays)), days, minimumHours, minimumDays, ...selection };
 }
 function scoreForecast(forecast, context = {}) {
   const scored = forecast.map((hour) => ({ ...hour, ...scoreHour(hour, context) }));
@@ -176,8 +181,8 @@ function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast =
     if (requireMarked && window2.some((hour) => !hour.marked)) continue;
     const risks = [...new Set(window2.flatMap((hour) => hour.risks || []))];
     const average = window2.reduce((sum, hour) => sum + hour.points, 0) / window2.length;
-    if (risks.length || average < 0) continue;
-    const quality = risks.length ? -Infinity : average;
+    if (risks.length) continue;
+    const quality = average;
     if (!best || quality > best.quality) best = { hours: window2, average, risks, quality };
   }
   return best;

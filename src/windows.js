@@ -28,8 +28,8 @@ export function selectRunWindow(hours, { duration = 60, now = Date.now(), includ
     if (requireMarked && window.some(hour => !hour.marked)) continue;
     const risks = [...new Set(window.flatMap(hour => hour.risks || []))];
     const average = window.reduce((sum, hour) => sum + hour.points, 0) / window.length;
-    if (risks.length || average < 0) continue;
-    const quality = risks.length ? -Infinity : average;
+    if (risks.length) continue;
+    const quality = average;
     if (!best || quality > best.quality) best = { hours: window, average, risks, quality };
   }
   return best;

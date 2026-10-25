@@ -28,6 +28,8 @@ Die gewählte `weather`-Entität muss eine stündliche Vorhersage für `weather.
 ## Bewertungsmodell
 Die additive Stundenbewertung folgt den veröffentlichten Regeln von [laufwetter.de](https://laufwetter.de/wie_und_warum/): zeitliche Nähe, Tageslicht, Temperatur, Luftfeuchte, Beaufort-Wind und Wetterlage. Die relative Auswahl sucht im Zehn-Tage-Horizont per Binärsuche die höchste Schwelle zwischen -10 und +20 mit mindestens 25 Stunden an fünf Tagen. Konkrete Laufzeitfenster sind eine eigene Erweiterung der Karte und verwenden dieselben Stundenscores.
 
+Die öffentliche Quelle formuliert die Markierung als Score „über“ einer Schwelle; die Karte verwendet deshalb für ganzzahlige Schwellen strikt `>` statt `>=`. Bei weniger als zehn Tagen verwendet sie ausdrücklich eine eigene `Kurzfrist-Schwelle`: mindestens fünf markierte Stunden pro verfügbarem Tag, höchstens fünf Tage und höchstens 25 Stunden. Dies ist keine Behauptung über das Originalverfahren; eine Top-10-Auswahl wird nicht verwendet.
+
 Die Karte ruft keine Daten von laufwetter.de ab. Home-Assistant-Anbieter liefern nicht zwingend DWD-MOSMIX-Daten, DWD-`ww`-Codes, Sonnenscheindauer oder die vollständigen Feuchtewerte. Daher ist die Bewertung nur dann mathematisch identisch, wenn diese Eingabedaten und alle nicht veröffentlichten Detailregeln übereinstimmen. Fehlende Niederschlagsmenge und Luftfeuchte werden nicht erfunden; eine reine Regenwahrscheinlichkeit wird nicht als Starkregen gewertet.
 
 Mit `debug: true` zeigt die Karte Rohwerte, normalisierte Werte und verwendete Einheiten. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.

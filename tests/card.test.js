@@ -38,8 +38,8 @@ test("selects a complete, contiguous run window", () => {
   assert.equal(window.hours.length, 2);
   assert.equal(qualityLabel(window), "Gut");
 });
-test("does not recommend an entirely unfavorable or nighttime window", () => {
-  const hours = forecast.map(hour => ({ ...hour, points: -4, risks: [] }));
+test("does not recommend a risky or nighttime window", () => {
+  const hours = forecast.map(hour => ({ ...hour, points: -4, risks: ["Starkregen"] }));
   assert.equal(selectRunWindow(hours, { duration: 60, includePast: true }), null);
   const daylight = { sunrise: "2099-01-01T08:00:00Z", sunset: "2099-01-01T16:00:00Z" };
   const night = forecast.slice(0, 2).map((hour, index) => ({ ...hour, datetime: `2099-01-01T0${index + 2}:00:00Z`, points: 20, risks: [] }));
@@ -48,6 +48,10 @@ test("does not recommend an entirely unfavorable or nighttime window", () => {
 test("requires marked hours when selecting a relative-score window", () => {
   const hours = forecast.map((hour, index) => ({ ...hour, points: 12, risks: [], marked: index === 1 }));
   assert.equal(selectRunWindow(hours, { duration: 90, includePast: true, requireMarked: true }), null);
+});
+test("allows a marked negative-score window when no risk applies", () => {
+  const hours = forecast.slice(0, 2).map(hour => ({ ...hour, points: -4, risks: [], marked: true }));
+  assert.equal(selectRunWindow(hours, { duration: 90, includePast: true, requireMarked: true }).average, -4);
 });
 test("classifies daylight per forecast date and keeps missing sun data unknown", () => {
   const place = { latitude: 53.63, longitude: 11.41 };
