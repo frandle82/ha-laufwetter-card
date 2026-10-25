@@ -125,6 +125,7 @@ function formatDateTime(value) {
       weekday: "short",
       day: "2-digit",
       month: "2-digit",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false
@@ -135,6 +136,7 @@ function formatDateTime(value) {
 }
 
 // src/card.js
+var CARD_VERSION = "0.1.3";
 var LaufwetterCard = class extends HTMLElement {
   constructor() {
     super();
@@ -205,4 +207,4 @@ var LaufwetterCard = class extends HTMLElement {
 };
 customElements.define("laufwetter-card", LaufwetterCard);
 window.customCards = window.customCards || [];
-window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", description: "Eigenst\xE4ndiger relativer Laufwetter-Index" });
+window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", version: CARD_VERSION, description: "Eigenst\xE4ndiger relativer Laufwetter-Index" });

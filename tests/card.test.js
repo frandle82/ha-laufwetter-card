@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatDateTime } from "../src/format.js";
+import { formatDateTime, formatTime } from "../src/format.js";
 
 class TestElement { attachShadow() { this.shadowRoot = { innerHTML: "" }; return this.shadowRoot; } }
 const registry = new Map();
@@ -15,6 +15,7 @@ const forecast = [{ datetime: "2099-01-01T12:00:00Z", temperature: 12, precipita
 
 test("formats valid German date/time and survives invalid value", () => {
   assert.match(formatDateTime("2099-01-01T12:00:00Z"), /01\.01\./);
+  assert.match(formatTime("2099-01-01T12:00:00Z"), /:\d{2}$/);
   assert.equal(formatDateTime("invalid"), "–");
 });
 test("renders realistic hourly forecast without DateTimeFormat exception", async () => {

@@ -1,6 +1,7 @@
 import { scoreForecast } from "./scoring.js";
 import { normalizeForecast, unitSnapshot } from "./forecast.js";
 import { formatDateTime } from "./format.js";
+const CARD_VERSION = "0.1.3";
 class LaufwetterCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: "open" }); this.forecast = []; this.error = ""; this.loading = false; this.lastFetch = 0; this.requestId = 0; }
   disconnectedCallback() { this.requestId++; }
@@ -37,4 +38,4 @@ class LaufwetterCard extends HTMLElement {
 }
 customElements.define("laufwetter-card", LaufwetterCard);
 window.customCards = window.customCards || [];
-window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", description: "Eigenständiger relativer Laufwetter-Index" });
+window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", version: CARD_VERSION, description: "Eigenständiger relativer Laufwetter-Index" });
