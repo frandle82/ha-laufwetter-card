@@ -11,6 +11,9 @@ Ursache war `Intl.DateTimeFormat("de-DE", { dateStyle: "short", hour, minute })`
 - Zustände `uninitialized`, `waiting`, `loading`, `ready`, `no-data`, `entity-missing` und `service-error` eingeführt.
 - Fehlende/unerreichbare Wetterentität wird innerhalb der Karte angezeigt.
 - Fehler beim Forecast-Service werden nicht als Konfigurationsfehler weitergeworfen.
+- WebSocket-Ziel wird als `target.entity_id: [configuredEntity]` gesendet; Antwort wird unter demselben Entity-Key geprüft.
+- Debug-Modus zeigt Entity-ID, Entity-Status, angeforderten Typ `hourly`, Ziel, Antwortstatus und Fehlermeldung.
+- Fehlgeschlagene Abrufe erhalten eine Retry-Sperre bis zum nächsten konfigurierten Refresh.
 - Standardwerte für `duration` und `refresh_minutes` stabilisiert; `entity` validiert.
 - Doppelte Custom-Element-Registrierung und doppelte `window.customCards`-Einträge verhindert.
 - HACS-Bundle `dist/ha-laufwetter-card.js` neu gebaut.
@@ -26,7 +29,7 @@ Ursache war `Intl.DateTimeFormat("de-DE", { dateStyle: "short", hour, minute })`
 - Servicefehler.
 - Erfolgreicher Abruf und anschließende Aktualisierung.
 - Einmalige Custom-Element-Registrierung.
-- `npm test`: 18/18 bestanden.
+- `npm test`: 20/20 bestanden.
 - `npm run build`: erfolgreich.
 - `node --check dist/ha-laufwetter-card.js`: erfolgreich.
 
