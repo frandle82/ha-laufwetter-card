@@ -11,7 +11,7 @@ const daylight = (value, sun = {}) => {
 export const severeRisk = risk => /Gewitter|Unwetter|Sturm- oder Orkanböen|mögliche Glätte|extreme Temperatur|Starkregen/.test(risk);
 export const hasSevereRisk = hour => Boolean(hour.warning) || (hour.risks || []).some(severeRisk);
 
-export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, excludeSevereRisks = true, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
+export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, excludeSevereRisks = true, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus, timeZone } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter(hour => includePast || Date.parse(hour.datetime) >= now)
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
@@ -29,7 +29,24 @@ export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), incl
     const quality = average;
     if (!best || quality > best.quality) best = { hours: window, average, risks, quality };
   }
-  return { window: best, exclusions };
+  const suitable = hour => (allowNightRuns || (getDaylightStatus ? getDaylightStatus(hour) !== "night" : daylight(hour.datetime, sun)))
+    && (!requireMarked || hour.marked)
+    && (!excludeSevereRisks || !hasSevereRisk(hour));
+  const groups = [];
+  let group = null;
+  for (const hour of candidates) {
+    if (!suitable(hour)) { group = null; continue; }
+    const previous = group?.at(-1), consecutive = previous
+      && Date.parse(hour.datetime) - Date.parse(previous.datetime) <= 90 * 60000
+      && localDayOffset(hour.datetime, 0, timeZone) === localDayOffset(previous.datetime, 0, timeZone);
+    if (consecutive) group.push(hour); else { group = [hour]; groups.push(group); }
+  }
+  const windows = groups.filter(group => group.length >= needed).map(group => {
+    const risks = [...new Set(group.flatMap(hour => hour.risks || []))];
+    const average = group.reduce((sum, hour) => sum + hour.points, 0) / group.length;
+    return { hours: group, average, risks, quality: average };
+  });
+  return { window: best, windows, exclusions };
 }
 
 export function selectRunWindow(hours, options = {}) { return analyzeRunWindows(hours, options).window; }
@@ -46,5 +63,5 @@ export function qualityLabel(window) {
 export function daySummary(hours, options = {}) {
   const analysis = analyzeRunWindows(hours, options), window = analysis.window;
   const fallback = [...hours].sort((a, b) => b.points - a.points)[0];
-  return { hours, window, fallback, label: qualityLabel(window), exclusions: analysis.exclusions, reason: analysis.exclusions[0]?.reason || "keine zusammenhängende, relativ markierte Laufzeit" };
+  return { hours, window, windows: analysis.windows, fallback, label: qualityLabel(window), exclusions: analysis.exclusions, reason: analysis.exclusions[0]?.reason || "keine zusammenhängende, relativ markierte Laufzeit" };
 }

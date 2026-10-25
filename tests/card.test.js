@@ -98,6 +98,35 @@ test("allows a marked negative-score window when no risk applies", () => {
   const hours = forecast.slice(0, 2).map(hour => ({ ...hour, points: -4, risks: [], marked: true }));
   assert.equal(selectRunWindow(hours, { duration: 90, includePast: true, requireMarked: true }).average, -4);
 });
+test("groups every contiguous marked period and keeps the best-window API", () => {
+  const hours = [
+    { datetime: "2026-10-26T08:00:00+01:00", points: 4, marked: true, risks: [] },
+    { datetime: "2026-10-26T09:00:00+01:00", points: 5, marked: true, risks: [] },
+    { datetime: "2026-10-26T10:00:00+01:00", points: 20, marked: false, risks: [] },
+    { datetime: "2026-10-26T11:00:00+01:00", points: -3, marked: true, risks: [] },
+    { datetime: "2026-10-26T12:00:00+01:00", points: -2, marked: true, risks: [] }
+  ];
+  const analysis = analyzeRunWindows(hours, { duration: 60, includePast: true, requireMarked: true, timeZone: "Europe/Berlin" });
+  assert.deepEqual(analysis.windows.map(window => window.hours.map(hour => hour.datetime)), [[hours[0].datetime, hours[1].datetime], [hours[3].datetime, hours[4].datetime]]);
+  assert.equal(analysis.window.hours.length, 1);
+});
+test("splits suitable periods at local day boundaries", () => {
+  const hours = [
+    { datetime: "2026-10-25T23:00:00+01:00", points: 4, marked: true, risks: [] },
+    { datetime: "2026-10-26T00:00:00+01:00", points: 5, marked: true, risks: [] }
+  ];
+  const analysis = analyzeRunWindows(hours, { duration: 60, includePast: true, requireMarked: true, timeZone: "Europe/Berlin" });
+  assert.deepEqual(analysis.windows.map(window => window.hours.length), [1, 1]);
+});
+test("an unsuitable forecast entry always interrupts a period", () => {
+  const hours = [
+    { datetime: "2026-10-26T08:00:00+01:00", points: 4, marked: true, risks: [] },
+    { datetime: "2026-10-26T08:30:00+01:00", points: 0, marked: false, risks: [] },
+    { datetime: "2026-10-26T09:00:00+01:00", points: 5, marked: true, risks: [] }
+  ];
+  const analysis = analyzeRunWindows(hours, { duration: 60, includePast: true, requireMarked: true, timeZone: "Europe/Berlin" });
+  assert.deepEqual(analysis.windows.map(window => window.hours.length), [1, 1]);
+});
 test("allows marked strong gusts but excludes severe hazards", () => {
   const gusts = forecast.slice(0, 2).map(hour => ({ ...hour, points: -2, marked: true, risks: ["starke Böen"] }));
   assert.equal(selectRunWindow(gusts, { duration: 60, includePast: true, requireMarked: true }).hours.length, 1);
@@ -120,6 +149,34 @@ test("separates complete today from remaining runs and keeps tomorrow independen
   assert.ok(view.tomorrowSummary.window);
   assert.ok(view.selected.has("2026-10-26T08:00:00+01:00"));
 });
+test("shows all future periods today and all periods tomorrow from the same marked hours", () => {
+  const hours = [
+    { datetime: "2026-10-25T10:00:00+01:00", points: 8, marked: true, risks: [] },
+    { datetime: "2026-10-25T18:00:00+01:00", points: 7, marked: true, risks: [] },
+    { datetime: "2026-10-25T19:00:00+01:00", points: 7, marked: true, risks: [] },
+    { datetime: "2026-10-25T20:00:00+01:00", points: 0, marked: false, risks: [] },
+    { datetime: "2026-10-25T21:00:00+01:00", points: -2, marked: true, risks: [] },
+    { datetime: "2026-10-26T08:00:00+01:00", points: 6, marked: true, risks: [] },
+    { datetime: "2026-10-26T09:00:00+01:00", points: 0, marked: false, risks: [] },
+    { datetime: "2026-10-26T10:00:00+01:00", points: 5, marked: true, risks: [] }
+  ];
+  const view = overview(hours);
+  assert.deepEqual(view.todaySummary.windows.map(window => window.hours.map(hour => hour.datetime)), [[hours[1].datetime, hours[2].datetime], [hours[4].datetime]]);
+  assert.deepEqual(view.tomorrowSummary.windows.map(window => window.hours.map(hour => hour.datetime)), [[hours[5].datetime], [hours[7].datetime]]);
+  assert.equal(view.selected.has(hours[0].datetime), false);
+  assert.deepEqual([...view.selected], [hours[1].datetime, hours[2].datetime, hours[4].datetime, hours[5].datetime, hours[7].datetime]);
+});
+test("renders every daily period instead of only the best one", () => withNow("2026-10-25T17:00:00+01:00", () => {
+  const hours = [
+    { datetime: "2026-10-25T18:00:00+01:00", points: 8, marked: true, risks: [] },
+    { datetime: "2026-10-25T19:00:00+01:00", points: 0, marked: false, risks: [] },
+    { datetime: "2026-10-25T20:00:00+01:00", points: -2, marked: true, risks: [] }
+  ];
+  const card = new Card(); card.setConfig(config); card._hass = { config: { time_zone: "Europe/Berlin", latitude: 53.63, longitude: 11.41 } };
+  card.scored = { day: localDayOffset(Date.now(), 0, "Europe/Berlin"), result: { hours, selection: { marked: hours.filter(hour => hour.marked) } } };
+  card.render();
+  assert.match(card.shadowRoot.innerHTML, /18:00–19:00 Uhr, 20:00–21:00 Uhr/);
+}));
 test("renders the passed-today message instead of a technical exclusion", () => withNow("2026-10-25T17:00:00+01:00", () => {
   const hours = [{ datetime: "2026-10-25T10:00:00+01:00", points: 8, marked: true, risks: [] }];
   const card = new Card(); card.setConfig(config); card._hass = { config: { latitude: 53.63, longitude: 11.41 } };

@@ -30,8 +30,8 @@ const weatherIcon = hours => {
 };
 const renderHeader = config => `<header class="card-header"><div><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</div><ha-icon class="header-icon" icon="mdi:run"></ha-icon></header>`;
 const renderDaySummary = (label, hours, summary, message, timeZone) => {
-  const summaryHours = summary.window?.hours || hours;
-  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} · ${hours.length ? esc(dayName(hours[0].datetime, timeZone)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.window ? rangeText(summary.window, timeZone) : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
+  const summaryHours = summary.windows.flatMap(window => window.hours);
+  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours.length ? summaryHours : hours)}"></ha-icon><h2 class="day-summary__title">${label} · ${hours.length ? esc(dayName(hours[0].datetime, timeZone)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.windows.length ? summary.windows.map(window => rangeText(window, timeZone)).join(", ") : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours.length ? summaryHours : hours))}</div></section>`;
 };
 const timelineColor = (hour, selected, isNight) => selected.has(hour.datetime) ? "#22a06b" : hour.marked ? "#e9b44c" : isNight(hour) ? "#8b95a5" : "#d66b61";
 const renderTimeline = (hours, selected, isNight, timeZone) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time class="timeline-date">${esc(shortDate(hours[0].datetime, timeZone))}</time>` : ""}</div><div class="timeline" aria-label="Stündliche Wetterqualität heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || localDayKey(hour.datetime, timeZone) !== localDayKey(hours[index - 1].datetime, timeZone) ? " timeline-hour--day-start" : ""}" data-date="${esc(shortDate(hour.datetime, timeZone))}" data-datetime="${esc(hour.datetime)}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime, timeZone))}: ${esc(hour.risks?.join(", ") || "Laufen möglich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${localHour(hour.datetime, timeZone)}</span></div>`).join("") : "<span class='meta'>Keine zukünftigen Stunden verfügbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ungünstig</span><span class="legend-ok">Möglich</span><span class="legend-best">Empfohlen</span></div></section>`;
@@ -152,14 +152,14 @@ class LaufwetterCard extends HTMLElement {
     const hours = scoredResult.hours.map(hour => ({ ...hour, marked: markedHours.has(hour.datetime) }));
     const todayKey = localDayOffset(now, 0, timeZone), tomorrowKey = localDayOffset(now, 1, timeZone);
     const today = hours.filter(hour => localDayOffset(hour.datetime, 0, timeZone) === todayKey), tomorrow = hours.filter(hour => localDayOffset(hour.datetime, 0, timeZone) === tomorrowKey);
-    const options = { daylightStatus: daylight, allowNightRuns: true, excludeSevereRisks: false, requireMarked: true, duration: this.config.duration };
+    const options = { daylightStatus: daylight, allowNightRuns: true, excludeSevereRisks: false, requireMarked: true, duration: this.config.duration, timeZone };
     const todayFullSummary = daySummary(today, { ...options, includePast: true });
     const todaySummary = daySummary(today, { ...options, now });
     const tomorrowSummary = daySummary(tomorrow, { ...options, includePast: true });
     const historyAvailable = today.some(hour => Date.parse(hour.datetime) <= now - Number(this.config.duration) * 60000);
-    const todayMessage = !today.length ? "Heute keine Prognose verfügbar." : todaySummary.window ? "" : todayFullSummary.window && historyAvailable ? "Alle empfohlenen Laufzeiten für heute sind vorbei." : "Heute keine empfohlenen Laufzeiten.";
+    const todayMessage = !today.length ? "Heute keine Prognose verfügbar." : todaySummary.windows.length ? "" : todayFullSummary.windows.length && historyAvailable ? "Alle empfohlenen Laufzeiten für heute sind vorbei." : "Heute keine empfohlenen Laufzeiten.";
     const tomorrowMessage = !tomorrow.length ? "Morgen keine Prognose verfügbar." : "Morgen keine empfohlenen Laufzeiten.";
-    const selected = new Set([...(todaySummary.window?.hours || []), ...(tomorrowSummary.window?.hours || [])].map(hour => hour.datetime));
+    const selected = new Set([...todaySummary.windows, ...tomorrowSummary.windows].flatMap(window => window.hours).map(hour => hour.datetime));
     return { daylight, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours: hours.filter(hour => Date.parse(hour.datetime) >= now) };
   }
   render() {

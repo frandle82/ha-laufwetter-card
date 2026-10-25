@@ -192,7 +192,7 @@ var daylight = (value, sun = {}) => {
 };
 var severeRisk = (risk) => /Gewitter|Unwetter|Sturm- oder Orkanböen|mögliche Glätte|extreme Temperatur|Starkregen/.test(risk);
 var hasSevereRisk = (hour) => Boolean(hour.warning) || (hour.risks || []).some(severeRisk);
-function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, excludeSevereRisks = true, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
+function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, excludeSevereRisks = true, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus, timeZone } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter((hour) => includePast || Date.parse(hour.datetime) >= now).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
   let best = null;
@@ -222,7 +222,27 @@ function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast
     const quality = average;
     if (!best || quality > best.quality) best = { hours: window2, average, risks, quality };
   }
-  return { window: best, exclusions };
+  const suitable = (hour) => (allowNightRuns || (getDaylightStatus ? getDaylightStatus(hour) !== "night" : daylight(hour.datetime, sun))) && (!requireMarked || hour.marked) && (!excludeSevereRisks || !hasSevereRisk(hour));
+  const groups = [];
+  let group = null;
+  for (const hour of candidates) {
+    if (!suitable(hour)) {
+      group = null;
+      continue;
+    }
+    const previous = group?.at(-1), consecutive = previous && Date.parse(hour.datetime) - Date.parse(previous.datetime) <= 90 * 6e4 && localDayOffset2(hour.datetime, 0, timeZone) === localDayOffset2(previous.datetime, 0, timeZone);
+    if (consecutive) group.push(hour);
+    else {
+      group = [hour];
+      groups.push(group);
+    }
+  }
+  const windows = groups.filter((group2) => group2.length >= needed).map((group2) => {
+    const risks = [...new Set(group2.flatMap((hour) => hour.risks || []))];
+    const average = group2.reduce((sum, hour) => sum + hour.points, 0) / group2.length;
+    return { hours: group2, average, risks, quality: average };
+  });
+  return { window: best, windows, exclusions };
 }
 function qualityLabel(window2) {
   if (!window2) return "Ung\xFCnstig";
@@ -235,7 +255,7 @@ function qualityLabel(window2) {
 function daySummary(hours, options = {}) {
   const analysis = analyzeRunWindows(hours, options), window2 = analysis.window;
   const fallback = [...hours].sort((a, b) => b.points - a.points)[0];
-  return { hours, window: window2, fallback, label: qualityLabel(window2), exclusions: analysis.exclusions, reason: analysis.exclusions[0]?.reason || "keine zusammenh\xE4ngende, relativ markierte Laufzeit" };
+  return { hours, window: window2, windows: analysis.windows, fallback, label: qualityLabel(window2), exclusions: analysis.exclusions, reason: analysis.exclusions[0]?.reason || "keine zusammenh\xE4ngende, relativ markierte Laufzeit" };
 }
 
 // src/daylight.js
@@ -313,8 +333,8 @@ var weatherIcon = (hours) => {
 };
 var renderHeader = (config) => `<header class="card-header"><div><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</div><ha-icon class="header-icon" icon="mdi:run"></ha-icon></header>`;
 var renderDaySummary = (label, hours, summary, message, timeZone) => {
-  const summaryHours = summary.window?.hours || hours;
-  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime, timeZone)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.window ? rangeText(summary.window, timeZone) : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
+  const summaryHours = summary.windows.flatMap((window2) => window2.hours);
+  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours.length ? summaryHours : hours)}"></ha-icon><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime, timeZone)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(summary.windows.length ? summary.windows.map((window2) => rangeText(window2, timeZone)).join(", ") : message)}</div><div class="day-summary__metrics">${esc(metrics(summaryHours.length ? summaryHours : hours))}</div></section>`;
 };
 var timelineColor = (hour, selected, isNight) => selected.has(hour.datetime) ? "#22a06b" : hour.marked ? "#e9b44c" : isNight(hour) ? "#8b95a5" : "#d66b61";
 var renderTimeline = (hours, selected, isNight, timeZone) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time class="timeline-date">${esc(shortDate(hours[0].datetime, timeZone))}</time>` : ""}</div><div class="timeline" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || localDayKey(hour.datetime, timeZone) !== localDayKey(hours[index - 1].datetime, timeZone) ? " timeline-hour--day-start" : ""}" data-date="${esc(shortDate(hour.datetime, timeZone))}" data-datetime="${esc(hour.datetime)}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime, timeZone))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${localHour(hour.datetime, timeZone)}</span></div>`).join("") : "<span class='meta'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ung\xFCnstig</span><span class="legend-ok">M\xF6glich</span><span class="legend-best">Empfohlen</span></div></section>`;
@@ -488,14 +508,14 @@ var LaufwetterCard = class extends HTMLElement {
     const hours = scoredResult.hours.map((hour) => ({ ...hour, marked: markedHours.has(hour.datetime) }));
     const todayKey = localDayOffset2(now, 0, timeZone), tomorrowKey = localDayOffset2(now, 1, timeZone);
     const today = hours.filter((hour) => localDayOffset2(hour.datetime, 0, timeZone) === todayKey), tomorrow = hours.filter((hour) => localDayOffset2(hour.datetime, 0, timeZone) === tomorrowKey);
-    const options = { daylightStatus: daylight2, allowNightRuns: true, excludeSevereRisks: false, requireMarked: true, duration: this.config.duration };
+    const options = { daylightStatus: daylight2, allowNightRuns: true, excludeSevereRisks: false, requireMarked: true, duration: this.config.duration, timeZone };
     const todayFullSummary = daySummary(today, { ...options, includePast: true });
     const todaySummary = daySummary(today, { ...options, now });
     const tomorrowSummary = daySummary(tomorrow, { ...options, includePast: true });
     const historyAvailable = today.some((hour) => Date.parse(hour.datetime) <= now - Number(this.config.duration) * 6e4);
-    const todayMessage = !today.length ? "Heute keine Prognose verf\xFCgbar." : todaySummary.window ? "" : todayFullSummary.window && historyAvailable ? "Alle empfohlenen Laufzeiten f\xFCr heute sind vorbei." : "Heute keine empfohlenen Laufzeiten.";
+    const todayMessage = !today.length ? "Heute keine Prognose verf\xFCgbar." : todaySummary.windows.length ? "" : todayFullSummary.windows.length && historyAvailable ? "Alle empfohlenen Laufzeiten f\xFCr heute sind vorbei." : "Heute keine empfohlenen Laufzeiten.";
     const tomorrowMessage = !tomorrow.length ? "Morgen keine Prognose verf\xFCgbar." : "Morgen keine empfohlenen Laufzeiten.";
-    const selected = new Set([...todaySummary.window?.hours || [], ...tomorrowSummary.window?.hours || []].map((hour) => hour.datetime));
+    const selected = new Set([...todaySummary.windows, ...tomorrowSummary.windows].flatMap((window2) => window2.hours).map((hour) => hour.datetime));
     return { daylight: daylight2, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours: hours.filter((hour) => Date.parse(hour.datetime) >= now) };
   }
   render() {
