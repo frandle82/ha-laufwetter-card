@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { formatDateTime } from "../src/format.js";
 
 class TestElement {
   attachShadow() { this.shadowRoot = { innerHTML: "" }; return this.shadowRoot; }
@@ -13,6 +14,8 @@ const Card = registry.get("laufwetter-card");
 const config = { type: "custom:laufwetter-card", entity: "weather.schwerin", location: "Schwerin", title: "Laufwetter", duration: 60, refresh_minutes: 30 };
 const hass = (response, states = { "weather.schwerin": { state: "sunny", attributes: { temperature_unit: "°C", wind_speed_unit: "km/h" } } }) => ({ states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => response });
 const forecastResponse = { response: { "weather.schwerin": { forecast: [{ datetime: "2099-01-01T12:00:00Z", temperature: 12, precipitation: 0, wind_speed: 5 }] } } };
+
+test("date formatter uses compatible German options and survives invalid dates", () => { assert.match(formatDateTime("2099-01-01T12:00:00Z"), /01\.01\./); assert.equal(formatDateTime("not-a-date"), "Unbekannte Zeit"); });
 
 test("exact YAML config initializes without extra parameters", () => { const card = new Card(); card.setConfig(config); assert.equal(card.status, "waiting"); assert.match(card.shadowRoot.innerHTML, /Warte auf Home-Assistant-Daten/); });
 test("incomplete entity id gets a clear configuration error", () => { const card = new Card(); assert.throws(() => card.setConfig({ ...config, entity: "weather" }), /vollständige weather-Entität/); });
