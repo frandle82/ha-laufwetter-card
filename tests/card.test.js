@@ -25,6 +25,12 @@ test("renders realistic hourly forecast without DateTimeFormat exception", async
   assert.match(card.shadowRoot.innerHTML, /Heute/);
   assert.match(card.shadowRoot.innerHTML, /Heute/);
 });
+test("uses configurable title and optional location below the title", () => {
+  const card = new Card(); card.setConfig({ ...config, title: "Mein Laufwetter", show_location: true });
+  assert.match(card.shadowRoot.innerHTML, /Mein Laufwetter/);
+  assert.match(card.shadowRoot.innerHTML, /Schwerin/);
+  assert.doesNotMatch(card.shadowRoot.innerHTML, /Laufwetter-Punktzahl|Sehr gut|Eingeschränkt|Ungünstig/);
+});
 test("selects a complete, contiguous run window", () => {
   const hours = forecast.map(hour => ({ ...hour, points: 12, risks: [] }));
   const window = selectRunWindow(hours, { duration: 90, includePast: true });
