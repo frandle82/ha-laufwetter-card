@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { formatDateTime, formatTime } from "../src/format.js";
-import { analyzeRunWindows, selectRunWindow, qualityLabel } from "../src/windows.js";
+import { analyzeRunWindows, localDayOffset, selectRunWindow, qualityLabel } from "../src/windows.js";
 import { daylightPoints, daylightStatus } from "../src/daylight.js";
 
 class TestShadowRoot {
@@ -24,6 +24,12 @@ const Card = registry.get("laufwetter-card");
 const config = { entity: "weather.schwerin", location: "Schwerin", title: "Laufwetter", duration: 60, refresh_minutes: 30 };
 const states = { "weather.schwerin": { state: "sunny", attributes: { temperature_unit: "°C", wind_speed_unit: "km/h" } } };
 const forecast = ["12:00", "13:00", "14:00", "15:00"].map(time => ({ datetime: `2099-01-01T${time}:00Z`, temperature: 12, precipitation: 0, wind_speed: 5 }));
+const withNow = (value, callback) => { const original = Date.now; Date.now = () => Date.parse(value); try { return callback(); } finally { Date.now = original; } };
+const overview = (hours, now = "2026-10-25T17:00:00+01:00") => withNow(now, () => {
+  const card = new Card(); card.setConfig(config); card._hass = { config: { latitude: 53.63, longitude: 11.41 } };
+  card.scored = { day: localDayOffset(Date.now()), result: { hours, selection: { marked: hours.filter(hour => hour.marked) } } };
+  return card.buildView();
+});
 
 test("formats valid German date/time and survives invalid value", () => {
   assert.match(formatDateTime("2099-01-01T12:00:00Z"), /01\.01\./);
@@ -81,6 +87,36 @@ test("allows marked strong gusts but excludes severe hazards", () => {
   assert.equal(selectRunWindow(storm, { duration: 60, includePast: true, requireMarked: true }), null);
   assert.match(analyzeRunWindows(storm, { duration: 60, includePast: true, requireMarked: true }).exclusions[0].reason, /Sturm/);
 });
+test("separates complete today from remaining runs and keeps tomorrow independent", () => {
+  const hours = [
+    { datetime: "2026-10-25T10:00:00+01:00", points: 8, marked: true, risks: [] },
+    { datetime: "2026-10-25T11:00:00+01:00", points: 7, marked: true, risks: [] },
+    { datetime: "2026-10-26T08:00:00+01:00", points: 6, marked: true, risks: [] },
+    { datetime: "2026-10-26T09:00:00+01:00", points: 5, marked: true, risks: [] }
+  ];
+  const view = overview(hours);
+  assert.ok(view.todayFullSummary.window);
+  assert.equal(view.todaySummary.window, null);
+  assert.equal(view.todayMessage, "Alle empfohlenen Laufzeiten für heute sind vorbei.");
+  assert.ok(view.tomorrowSummary.window);
+  assert.ok(view.selected.has("2026-10-26T08:00:00+01:00"));
+});
+test("renders the passed-today message instead of a technical exclusion", () => withNow("2026-10-25T17:00:00+01:00", () => {
+  const hours = [{ datetime: "2026-10-25T10:00:00+01:00", points: 8, marked: true, risks: [] }];
+  const card = new Card(); card.setConfig(config); card._hass = { config: { latitude: 53.63, longitude: 11.41 } };
+  card.scored = { day: localDayOffset(Date.now()), result: { hours, selection: { marked: hours } } };
+  card.render();
+  assert.match(card.shadowRoot.innerHTML, /Alle empfohlenen Laufzeiten für heute sind vorbei\./);
+  assert.doesNotMatch(card.shadowRoot.innerHTML, /Keine Laufzeit: nicht relativ markiert/);
+}));
+test("does not claim passed runs without historical forecast and summarizes night-only tomorrow", () => {
+  const noHistory = overview([{ datetime: "2026-10-25T16:30:00+01:00", points: 8, marked: true, risks: [] }]);
+  assert.equal(noHistory.todayMessage, "Heute keine empfohlenen Laufzeiten.");
+  const nightOnly = overview([{ datetime: "2026-10-26T02:00:00+01:00", points: 8, marked: true, risks: [] }]);
+  assert.equal(nightOnly.tomorrowSummary.window, null);
+  assert.equal(nightOnly.tomorrowMessage, "Morgen keine empfohlenen Laufzeiten.");
+  assert.match(nightOnly.tomorrowSummary.exclusions[0].reason, /Nacht/);
+});
 test("classifies daylight per forecast date and keeps missing sun data unknown", () => {
   const place = { latitude: 53.63, longitude: 11.41 };
   assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }, place), "day");
@@ -88,6 +124,7 @@ test("classifies daylight per forecast date and keeps missing sun data unknown",
   assert.equal(daylightStatus({ datetime: "2026-10-25T01:00:00+02:00", condition: "clear" }, place), "night");
   assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }), "unknown");
   assert.equal(daylightPoints({ datetime: "2026-10-25T01:00:00+02:00", condition: "clear" }, place), -16);
+  assert.equal(daylightStatus({ datetime: "2026-10-26T08:00:00+01:00", condition: "sunny" }, place), "day");
 });
 test("empty forecast and service error render inside card", async () => {
   const empty = new Card(); empty.setConfig(config); empty.hass = { states, callWS: async () => ({ response: { "weather.schwerin": { forecast: [] } } }) }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(empty.shadowRoot.innerHTML, /Keine zukünftigen Stunden/);
