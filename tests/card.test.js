@@ -31,6 +31,13 @@ test("selects a complete, contiguous run window", () => {
   assert.equal(window.hours.length, 2);
   assert.equal(qualityLabel(window), "Gut");
 });
+test("does not recommend an entirely unfavorable or nighttime window", () => {
+  const hours = forecast.map(hour => ({ ...hour, points: -4, risks: [] }));
+  assert.equal(selectRunWindow(hours, { duration: 60, includePast: true }), null);
+  const daylight = { sunrise: "2099-01-01T08:00:00Z", sunset: "2099-01-01T16:00:00Z" };
+  const night = forecast.slice(0, 2).map((hour, index) => ({ ...hour, datetime: `2099-01-01T0${index + 2}:00:00Z`, points: 20, risks: [] }));
+  assert.equal(selectRunWindow(night, { duration: 60, includePast: true, sun: daylight }), null);
+});
 test("empty forecast and service error render inside card", async () => {
   const empty = new Card(); empty.setConfig(config); empty.hass = { states, callWS: async () => ({ response: { "weather.schwerin": { forecast: [] } } }) }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(empty.shadowRoot.innerHTML, /Keine zukünftigen Stunden/);
   const failed = new Card(); failed.setConfig(config); failed.hass = { states, callWS: async () => { throw Error("forecast failed"); } }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(failed.shadowRoot.innerHTML, /forecast failed/);

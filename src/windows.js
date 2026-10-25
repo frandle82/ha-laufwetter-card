@@ -10,7 +10,13 @@ export function localDayOffset(value, offset = 0) {
   return dayKey(date);
 }
 
-export function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false } = {}) {
+const daylight = (value, sun = {}) => {
+  if (!sun.sunrise || !sun.sunset) return true;
+  const date = new Date(value), sunrise = new Date(sun.sunrise), sunset = new Date(sun.sunset);
+  return date >= sunrise && date < sunset;
+};
+
+export function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, sun = {} } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter(hour => includePast || Date.parse(hour.datetime) >= now)
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
@@ -18,8 +24,10 @@ export function selectRunWindow(hours, { duration = 60, now = Date.now(), includ
   for (let index = 0; index <= candidates.length - needed; index++) {
     const window = candidates.slice(index, index + needed);
     if (window.length < needed || window.some((hour, i) => i && Date.parse(hour.datetime) - Date.parse(window[i - 1].datetime) > 90 * 60000)) continue;
+    if (!allowNightRuns && window.some(hour => !daylight(hour.datetime, sun))) continue;
     const risks = [...new Set(window.flatMap(hour => hour.risks || []))];
     const average = window.reduce((sum, hour) => sum + hour.points, 0) / window.length;
+    if (risks.length || average < 0) continue;
     const quality = risks.length ? -Infinity : average;
     if (!best || quality > best.quality) best = { hours: window, average, risks, quality };
   }
@@ -37,5 +45,6 @@ export function qualityLabel(window) {
 
 export function daySummary(hours, options = {}) {
   const window = selectRunWindow(hours, options);
-  return { hours, window, label: qualityLabel(window) };
+  const fallback = [...hours].sort((a, b) => b.points - a.points)[0];
+  return { hours, window, fallback, label: qualityLabel(window) };
 }

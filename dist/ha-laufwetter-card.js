@@ -39,8 +39,8 @@ function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : /* @__PURE__ */ new Date();
   let points = date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 864e5).toDateString() ? 1 : 0;
-  const daylight = daytimeBonus(hour, context.sun);
-  if (daylight != null) points += daylight;
+  const daylight2 = daytimeBonus(hour, context.sun);
+  if (daylight2 != null) points += daylight2;
   if (temperature != null) points += temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
   if (humidity != null) points -= humidity / 10;
   const bft = beaufort(wind);
@@ -58,7 +58,7 @@ function scoreHour(hour = {}, context = {}) {
   if (temperature != null && (temperature <= -10 || temperature >= 35)) risks.push("extreme Temperatur");
   if (hour.precipitation != null && hour.precipitation > 2) risks.push("Starkregen");
   if (hour.warning) risks.push(hour.warning);
-  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight != null };
+  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight2 != null };
 }
 function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 864e5 : 0;
@@ -155,15 +155,22 @@ function localDayOffset(value, offset = 0) {
   date.setDate(date.getDate() + offset);
   return dayKey2(date);
 }
-function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false } = {}) {
+var daylight = (value, sun = {}) => {
+  if (!sun.sunrise || !sun.sunset) return true;
+  const date = new Date(value), sunrise = new Date(sun.sunrise), sunset = new Date(sun.sunset);
+  return date >= sunrise && date < sunset;
+};
+function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, sun = {} } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter((hour) => includePast || Date.parse(hour.datetime) >= now).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
   let best = null;
   for (let index = 0; index <= candidates.length - needed; index++) {
     const window2 = candidates.slice(index, index + needed);
     if (window2.length < needed || window2.some((hour, i) => i && Date.parse(hour.datetime) - Date.parse(window2[i - 1].datetime) > 90 * 6e4)) continue;
+    if (!allowNightRuns && window2.some((hour) => !daylight(hour.datetime, sun))) continue;
     const risks = [...new Set(window2.flatMap((hour) => hour.risks || []))];
     const average = window2.reduce((sum, hour) => sum + hour.points, 0) / window2.length;
+    if (risks.length || average < 0) continue;
     const quality = risks.length ? -Infinity : average;
     if (!best || quality > best.quality) best = { hours: window2, average, risks, quality };
   }
@@ -179,7 +186,8 @@ function qualityLabel(window2) {
 }
 function daySummary(hours, options = {}) {
   const window2 = selectRunWindow(hours, options);
-  return { hours, window: window2, label: qualityLabel(window2) };
+  const fallback = [...hours].sort((a, b) => b.points - a.points)[0];
+  return { hours, window: window2, fallback, label: qualityLabel(window2) };
 }
 
 // src/card.js
@@ -209,7 +217,7 @@ var LaufwetterCard = class extends HTMLElement {
   }
   setConfig(config) {
     if (!config?.entity) throw Error("Bitte eine weather-Entit\xE4t angeben.");
-    this.config = { title: "Laufwetter", location: "", duration: 60, refresh_minutes: 30, debug: false, sun_entity: "sun.sun", warning_entity: "", ...config };
+    this.config = { title: "Laufwetter", location: "", duration: 60, refresh_minutes: 30, debug: false, sun_entity: "sun.sun", warning_entity: "", allow_night_runs: false, ...config };
     this.render();
   }
   set hass(hass) {
@@ -270,13 +278,15 @@ var LaufwetterCard = class extends HTMLElement {
     const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
     const today = scored.hours.filter((hour) => localDayOffset(hour.datetime) === todayKey && Date.parse(hour.datetime) >= now);
     const tomorrow = scored.hours.filter((hour) => localDayOffset(hour.datetime) === tomorrowKey);
-    const todaySummary = daySummary(today, { duration: this.config.duration, now });
-    const tomorrowSummary = daySummary(tomorrow, { duration: this.config.duration, includePast: true });
+    const sunOptions = { sun: { sunrise: sun.next_rising, sunset: sun.next_setting }, allowNightRuns: this.config.allow_night_runs };
+    const todaySummary = daySummary(today, { ...sunOptions, duration: this.config.duration, now });
+    const tomorrowSummary = daySummary(tomorrow, { ...sunOptions, duration: this.config.duration, includePast: true });
     const first = todaySummary.window?.hours[0] || today[0];
     const metrics = (hour) => hour ? `${hour.temperature != null ? Math.round(hour.temperature) + " \xB0C" : "\u2013"} \xB7 ${hour.wind_speed != null ? Math.round(hour.wind_speed) + " km/h" : "\u2013"}${hour.wind_gust_speed != null ? " / " + Math.round(hour.wind_gust_speed) + " B\xF6en" : ""} \xB7 ${hour.precipitation != null ? hour.precipitation.toFixed(1) + " mm/h" : "\u2013"}${hour.precipitation_probability != null ? " / " + Math.round(hour.precipitation_probability) + "%" : ""}` : "Keine Daten";
-    const chart = today.map((hour) => `<div class="bar" title="${esc(formatDateTime(hour.datetime))}: ${hour.points} \xB7 ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${tint(hour.points)}"></div>`).join("");
+    const marked = new Set(todaySummary.window?.hours.map((hour) => hour.datetime) || []);
+    const chart = today.map((hour) => `<div class="bar${marked.has(hour.datetime) ? " recommended" : ""}" title="${esc(formatDateTime(hour.datetime))}: ${hour.points} \xB7 ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${tint(hour.points)}"></div>`).join("");
     const debug = this.config.debug ? `<details><summary>Debug</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, units: this.units, raw: this.rawForecast?.slice(0, 3), normalized: this.forecast.slice(0, 3), error: this.error }, null, 2))}</pre></details>` : "";
-    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{display:block;padding:18px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}h2{margin:4px 0 10px;font-size:24px}.head,.window,.metrics,.tomorrow{display:flex;justify-content:space-between;gap:12px;align-items:center}.small{font-size:12px;color:var(--secondary-text-color)}.window{border-top:1px solid var(--divider-color);border-bottom:1px solid var(--divider-color);padding:12px 0}.window strong{display:block;font-size:18px}.metrics{margin:14px 0;text-align:center}.metrics>div{flex:1}.metrics strong{display:block}.chart{height:100px;display:flex;align-items:end;gap:3px;margin:12px 0 4px}.bar{min-width:4px;flex:1;border-radius:3px 3px 0 0}.axis{display:flex;justify-content:space-between}.tomorrow{border-top:1px solid var(--divider-color);margin-top:16px;padding-top:14px}.tomorrow strong{display:block}.error{color:var(--error-color);margin-top:12px;font-size:13px}details{margin-top:12px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:420px){.metrics{font-size:12px;gap:4px}.window{align-items:flex-start;flex-direction:column}}</style><ha-card><div class="head"><strong>${esc(this.config.title)}</strong><span class="small">${esc(this.config.location)}</span></div><h2>Heute</h2><div class="small">${today.length ? esc(dayName(today[0].datetime)) : "Noch keine heutigen Prognosestunden"}</div><div class="window"><div><span class="small">Beste Laufzeit</span><strong>${esc(rangeText(todaySummary.window))}</strong></div><strong>${todaySummary.label}</strong></div><div class="metrics"><div><strong>${metrics(first)}</strong><span class="small">Temperatur \xB7 Wind/B\xF6en \xB7 Regen</span></div></div><div class="chart" aria-label="St\xFCndliche Wetterqualit\xE4t heute">${chart || "<span class='small'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="axis small"><span>${today[0] ? formatTime(today[0].datetime) : "\u2013"}</span><span>${today.at(-1) ? formatTime(today.at(-1).datetime) : "\u2013"}</span></div><div class="tomorrow"><div><span class="small">Morgen</span><strong>${tomorrow[0] ? esc(dayName(tomorrow[0].datetime)) : "Keine Prognose"}</strong></div><div><strong>${esc(rangeText(tomorrowSummary.window))}</strong><span class="small">${tomorrowSummary.label}${tomorrowSummary.window ? " \xB7 " + metrics(tomorrowSummary.window.hours[0]) : ""}</span></div></div>${this.loading ? `<div class="small">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
+    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{display:block;padding:18px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}h2{margin:4px 0 10px;font-size:24px}.head,.window,.metrics,.tomorrow{display:flex;justify-content:space-between;gap:12px;align-items:center}.small{font-size:12px;color:var(--secondary-text-color)}.window{border-top:1px solid var(--divider-color);border-bottom:1px solid var(--divider-color);padding:12px 0}.window strong{display:block;font-size:18px}.metrics{margin:14px 0;text-align:center}.metrics>div{flex:1}.metrics strong{display:block}.chart{height:100px;display:flex;align-items:end;gap:3px;margin:12px 0 4px}.bar{min-width:4px;flex:1;border-radius:3px 3px 0 0}.bar.recommended{outline:2px solid var(--primary-color);outline-offset:2px}.axis{display:flex;justify-content:space-between}.tomorrow{border-top:1px solid var(--divider-color);margin-top:16px;padding-top:14px}.tomorrow strong{display:block}.error{color:var(--error-color);margin-top:12px;font-size:13px}details{margin-top:12px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:420px){.metrics{font-size:12px;gap:4px}.window{align-items:flex-start;flex-direction:column}}</style><ha-card><div class="head"><strong>${esc(this.config.title)}</strong><span class="small">${esc(this.config.location)}</span></div><h2>Heute</h2><div class="small">${today.length ? esc(dayName(today[0].datetime)) : "Noch keine heutigen Prognosestunden"}</div><div class="window"><div><span class="small">Beste Laufzeit</span><strong>${todaySummary.window ? esc(rangeText(todaySummary.window)) : "Heute keine empfehlenswerte Laufzeit."}</strong></div><strong>${todaySummary.label}</strong></div><div class="metrics"><div><strong>${metrics(first)}</strong><span class="small">Temperatur \xB7 Wind/B\xF6en \xB7 Regenmenge/Wahrscheinlichkeit</span></div></div><div class="chart" aria-label="St\xFCndliche Wetterqualit\xE4t heute">${chart || "<span class='small'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="axis small"><span>${today[0] ? formatTime(today[0].datetime) : "\u2013"}</span><span>${today.at(-1) ? formatTime(today.at(-1).datetime) : "\u2013"}</span></div><div class="tomorrow"><div><span class="small">Morgen</span><strong>${tomorrow[0] ? esc(dayName(tomorrow[0].datetime)) : "Keine Prognose"}</strong></div><div><strong>${esc(rangeText(tomorrowSummary.window))}</strong><span class="small">${tomorrowSummary.label}${tomorrowSummary.window ? " \xB7 " + metrics(tomorrowSummary.window.hours[0]) : ""}</span></div></div>${this.loading ? `<div class="small">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
   }
   getCardSize() {
     return 4;
