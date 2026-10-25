@@ -134,9 +134,66 @@ function formatDateTime(value) {
     return "\u2013";
   }
 }
+function formatTime(value) {
+  try {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "\u2013";
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  } catch {
+    return "\u2013";
+  }
+}
+
+// src/windows.js
+var dayKey2 = (value) => {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+};
+function localDayOffset(value, offset = 0) {
+  const date = new Date(value);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  return dayKey2(date);
+}
+function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false } = {}) {
+  const needed = Math.max(1, Math.ceil(Number(duration) / 60));
+  const candidates = hours.filter((hour) => includePast || Date.parse(hour.datetime) >= now).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
+  let best = null;
+  for (let index = 0; index <= candidates.length - needed; index++) {
+    const window2 = candidates.slice(index, index + needed);
+    if (window2.length < needed || window2.some((hour, i) => i && Date.parse(hour.datetime) - Date.parse(window2[i - 1].datetime) > 90 * 6e4)) continue;
+    const risks = [...new Set(window2.flatMap((hour) => hour.risks || []))];
+    const average = window2.reduce((sum, hour) => sum + hour.points, 0) / window2.length;
+    const quality = risks.length ? -Infinity : average;
+    if (!best || quality > best.quality) best = { hours: window2, average, risks, quality };
+  }
+  return best;
+}
+function qualityLabel(window2) {
+  if (!window2) return "Ung\xFCnstig";
+  if (window2.risks.length) return "Ung\xFCnstig";
+  if (window2.average >= 15) return "Sehr gut";
+  if (window2.average >= 8) return "Gut";
+  if (window2.average >= 0) return "Eingeschr\xE4nkt";
+  return "Ung\xFCnstig";
+}
+function daySummary(hours, options = {}) {
+  const window2 = selectRunWindow(hours, options);
+  return { hours, window: window2, label: qualityLabel(window2) };
+}
 
 // src/card.js
-var CARD_VERSION = "0.1.3";
+var CARD_VERSION = "0.2.0";
+var esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+var tint = (points) => points == null ? "#94a3b8" : points >= 15 ? "#22a06b" : points >= 8 ? "#9aba57" : points >= 0 ? "#e9b44c" : "#d66b61";
+var dayName = (value) => {
+  try {
+    return new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }).format(new Date(value));
+  } catch {
+    return "Unbekannter Tag";
+  }
+};
+var rangeText = (window2) => window2 ? `${formatTime(window2.hours[0].datetime)}\u2013${formatTime(new Date(Date.parse(window2.hours.at(-1).datetime) + 60 * 6e4))} Uhr` : "Kein empfehlenswertes Zeitfenster";
 var LaufwetterCard = class extends HTMLElement {
   constructor() {
     super();
@@ -151,8 +208,8 @@ var LaufwetterCard = class extends HTMLElement {
     this.requestId++;
   }
   setConfig(config) {
-    if (!config.entity) throw Error("Bitte eine weather-Entit\xE4t angeben.");
-    this.config = { title: "Laufwetter", location: "", refresh_minutes: 30, debug: false, sun_entity: "sun.sun", warning_entity: "", ...config };
+    if (!config?.entity) throw Error("Bitte eine weather-Entit\xE4t angeben.");
+    this.config = { title: "Laufwetter", location: "", duration: 60, refresh_minutes: 30, debug: false, sun_entity: "sun.sun", warning_entity: "", ...config };
     this.render();
   }
   set hass(hass) {
@@ -164,42 +221,62 @@ var LaufwetterCard = class extends HTMLElement {
   }
   async fetchForecast() {
     if (!this._hass?.callWS || !this.config) return;
+    const entity = typeof this.config.entity === "string" ? this.config.entity.trim() : "";
+    const state = this._hass.states?.[entity];
+    if (!/^weather\.[^.]+$/.test(entity)) {
+      this.error = `Ung\xFCltige Wetter-Entit\xE4t: ${entity}`;
+      this.render();
+      return;
+    }
+    if (!state) {
+      this.error = `Die Wetter-Entit\xE4t ${entity} wurde nicht gefunden oder ist nicht verf\xFCgbar.`;
+      this.render();
+      return;
+    }
+    if (["unavailable", "unknown"].includes(state.state)) {
+      this.error = `Die Wetter-Entit\xE4t ${entity} ist nicht verf\xFCgbar.`;
+      this.render();
+      return;
+    }
+    if (this.loading) return;
     this.loading = true;
     this.lastFetch = Date.now();
-    const requestId = this.requestId;
+    const requestId = ++this.requestId;
     try {
-      const result = await this._hass.callWS({ type: "call_service", domain: "weather", service: "get_forecasts", service_data: { type: "hourly" }, target: { entity_id: this.config.entity }, return_response: true });
+      const result = await this._hass.callWS({ type: "call_service", domain: "weather", service: "get_forecasts", service_data: { type: "hourly" }, target: { entity_id: entity }, return_response: true });
       if (requestId !== this.requestId) return;
-      const data = result?.response || result, raw = data?.[this.config.entity]?.forecast;
+      const raw = (result?.response || result)?.[entity]?.forecast;
       if (!Array.isArray(raw)) throw Error("Keine st\xFCndliche Prognose verf\xFCgbar.");
       this.rawForecast = raw;
-      this.units = unitSnapshot(this._hass, this.config.entity);
+      this.units = unitSnapshot(this._hass, entity);
       const warning = this.config.warning_entity ? this._hass.states?.[this.config.warning_entity] : null;
       const warningText = warning && !["off", "unknown", "unavailable"].includes(warning.state) ? String(warning.attributes?.friendly_name || warning.state) : "";
       this.forecast = normalizeForecast(raw, this.units).map((hour) => ({ ...hour, warning: warningText }));
       this.error = "";
-    } catch (err) {
-      if (requestId === this.requestId) {
-        this.error = String(err.message || err);
-        this.forecast = [];
-      }
+    } catch (error) {
+      if (requestId === this.requestId) this.error = String(error.message || error);
     } finally {
-      this.loading = false;
-      this.render();
+      if (requestId === this.requestId) {
+        this.loading = false;
+        this.render();
+      }
     }
   }
   render() {
     if (!this.shadowRoot || !this.config) return;
-    const sun = this._hass?.states?.[this.config.sun_entity]?.attributes || {}, sunData = { sunrise: sun.next_rising, sunset: sun.next_setting };
-    const now = Date.now(), future = this.forecast.filter((hour) => Date.parse(hour.datetime) >= now), scored = scoreForecast(future, { now, sun: sunData }), hours = scored.hours, selection = scored.selection, first = hours[0];
-    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-    const tint = (value) => value == null ? "#94a3b8" : value >= 10 ? "#22a06b" : value >= 4 ? "#88b65d" : value >= 0 ? "#e9b44c" : "#d66b61";
-    const marked = new Set(selection.marked.map((hour) => hour.datetime));
-    const best = selection.marked.filter((hour) => !hour.risks?.length).sort((a, b) => b.points - a.points)[0];
-    const debug = this.config.debug ? `<details class="debug"><summary>Debug: Rohwerte, Einheiten, normalisierte Werte</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, units: this.units, sun: sunData, raw: this.rawForecast?.slice(0, 3), normalized: this.forecast.slice(0, 3) }, null, 2))}</pre></details>` : "";
-    const markText = best ? formatDateTime(best.datetime) : "Keine markierte Laufzeit";
-    const format = formatDateTime;
-    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{padding:20px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,16px);font-family:var(--primary-font-family,sans-serif)}.head,.summary,.metrics,.best,.timeline{display:flex;justify-content:space-between;align-items:center;gap:12px}.small{font-size:12px;color:var(--secondary-text-color)}h2{margin:4px 0;font-size:27px;color:${tint(first?.points)}}.summary strong{font-size:28px}.metrics{margin:20px 0;text-align:center}.metrics>div{flex:1}.metrics strong{display:block;margin-bottom:4px}.best{border-top:1px solid var(--divider-color);padding-top:14px}.bars{display:grid;grid-template-columns:repeat(auto-fit,minmax(5px,1fr));gap:2px;margin-top:16px}.bar{height:12px;border-radius:2px}.bar.marked{outline:2px solid var(--primary-color)}.timeline{margin-top:7px}.warning,.error{color:var(--error-color);font-size:12px;margin-top:10px}.debug{margin-top:12px}.debug pre{max-height:300px;overflow:auto;white-space:pre-wrap;font-size:11px}.legend{margin-top:8px}</style><ha-card><div class="head"><strong>${esc(this.config.title)}</strong><span class="small">${esc(this.config.location)}</span></div><div class="summary"><div><span class="small">Laufwetter-Punktzahl</span><h2>${first ? first.points : "\u2013"} Punkte</h2><span class="small">${selection.mode} \xB7 ${selection.horizonDays} Tage verf\xFCgbar</span></div><strong>${selection.threshold == null ? "relativ" : "Schwelle " + selection.threshold}</strong></div><div class="small">${best ? "G\xFCnstiger als andere Stunden" : "Keine ausreichende Empfehlung im verf\xFCgbaren Zeitraum"}</div><div class="metrics"><div><strong>${first?.temperature != null ? Math.round(first.temperature) + " \xB0C" : "\u2013"}</strong><span class="small">Temperatur</span></div><div><strong>${first?.wind_speed != null ? Math.round(first.wind_speed) + " km/h" : "\u2013"}${first?.wind_gust_speed != null ? " / " + Math.round(first.wind_gust_speed) : ""}</strong><span class="small">Mittelwind / B\xF6en</span></div><div><strong>${first?.precipitation != null ? first.precipitation.toFixed(1) + " mm/h" : "\u2013"}${first?.precipitation_probability != null ? " \xB7 " + Math.round(first.precipitation_probability) + "%" : ""}</strong><span class="small">Menge / Wahrscheinlichkeit</span></div></div><div class="best"><span>Beste verf\xFCgbare Laufzeit</span><strong>${markText}</strong></div><div class="bars">${hours.map((hour) => `<div class="bar${marked.has(hour.datetime) ? " marked" : ""}" title="${esc(format(hour.datetime))}: ${hour.points} Punkte${hour.risks?.length ? " \xB7 " + hour.risks.join(", ") : ""}" style="background:${tint(hour.points)}"></div>`).join("")}</div><div class="legend small">Markierung = relative Empfehlung \xB7 ${hours.length} Stunden bewertet</div><div class="timeline small"><span>${hours[0] ? format(hours[0].datetime) : "\u2013"}</span><span>${hours[Math.floor(hours.length / 2)] ? format(hours[Math.floor(hours.length / 2)].datetime) : "\u2013"}</span><span>${hours.at(-1) ? format(hours.at(-1).datetime) : "\u2013"}</span></div>${first?.risks?.length ? `<div class="warning">Warnung: ${esc(first.risks.join(", "))}</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}<div class="small" style="margin-top:12px">Additive, relative Heuristik; keine Gleichheit mit laufwetter.de und keine amtliche Sicherheitsbewertung.</div>${debug}</ha-card>`;
+    const sun = this._hass?.states?.[this.config.sun_entity]?.attributes || {};
+    const now = Date.now();
+    const scored = scoreForecast(this.forecast, { now, sun: { sunrise: sun.next_rising, sunset: sun.next_setting } });
+    const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
+    const today = scored.hours.filter((hour) => localDayOffset(hour.datetime) === todayKey && Date.parse(hour.datetime) >= now);
+    const tomorrow = scored.hours.filter((hour) => localDayOffset(hour.datetime) === tomorrowKey);
+    const todaySummary = daySummary(today, { duration: this.config.duration, now });
+    const tomorrowSummary = daySummary(tomorrow, { duration: this.config.duration, includePast: true });
+    const first = todaySummary.window?.hours[0] || today[0];
+    const metrics = (hour) => hour ? `${hour.temperature != null ? Math.round(hour.temperature) + " \xB0C" : "\u2013"} \xB7 ${hour.wind_speed != null ? Math.round(hour.wind_speed) + " km/h" : "\u2013"}${hour.wind_gust_speed != null ? " / " + Math.round(hour.wind_gust_speed) + " B\xF6en" : ""} \xB7 ${hour.precipitation != null ? hour.precipitation.toFixed(1) + " mm/h" : "\u2013"}${hour.precipitation_probability != null ? " / " + Math.round(hour.precipitation_probability) + "%" : ""}` : "Keine Daten";
+    const chart = today.map((hour) => `<div class="bar" title="${esc(formatDateTime(hour.datetime))}: ${hour.points} \xB7 ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${tint(hour.points)}"></div>`).join("");
+    const debug = this.config.debug ? `<details><summary>Debug</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, units: this.units, raw: this.rawForecast?.slice(0, 3), normalized: this.forecast.slice(0, 3), error: this.error }, null, 2))}</pre></details>` : "";
+    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{display:block;padding:18px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}h2{margin:4px 0 10px;font-size:24px}.head,.window,.metrics,.tomorrow{display:flex;justify-content:space-between;gap:12px;align-items:center}.small{font-size:12px;color:var(--secondary-text-color)}.window{border-top:1px solid var(--divider-color);border-bottom:1px solid var(--divider-color);padding:12px 0}.window strong{display:block;font-size:18px}.metrics{margin:14px 0;text-align:center}.metrics>div{flex:1}.metrics strong{display:block}.chart{height:100px;display:flex;align-items:end;gap:3px;margin:12px 0 4px}.bar{min-width:4px;flex:1;border-radius:3px 3px 0 0}.axis{display:flex;justify-content:space-between}.tomorrow{border-top:1px solid var(--divider-color);margin-top:16px;padding-top:14px}.tomorrow strong{display:block}.error{color:var(--error-color);margin-top:12px;font-size:13px}details{margin-top:12px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:420px){.metrics{font-size:12px;gap:4px}.window{align-items:flex-start;flex-direction:column}}</style><ha-card><div class="head"><strong>${esc(this.config.title)}</strong><span class="small">${esc(this.config.location)}</span></div><h2>Heute</h2><div class="small">${today.length ? esc(dayName(today[0].datetime)) : "Noch keine heutigen Prognosestunden"}</div><div class="window"><div><span class="small">Beste Laufzeit</span><strong>${esc(rangeText(todaySummary.window))}</strong></div><strong>${todaySummary.label}</strong></div><div class="metrics"><div><strong>${metrics(first)}</strong><span class="small">Temperatur \xB7 Wind/B\xF6en \xB7 Regen</span></div></div><div class="chart" aria-label="St\xFCndliche Wetterqualit\xE4t heute">${chart || "<span class='small'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="axis small"><span>${today[0] ? formatTime(today[0].datetime) : "\u2013"}</span><span>${today.at(-1) ? formatTime(today.at(-1).datetime) : "\u2013"}</span></div><div class="tomorrow"><div><span class="small">Morgen</span><strong>${tomorrow[0] ? esc(dayName(tomorrow[0].datetime)) : "Keine Prognose"}</strong></div><div><strong>${esc(rangeText(tomorrowSummary.window))}</strong><span class="small">${tomorrowSummary.label}${tomorrowSummary.window ? " \xB7 " + metrics(tomorrowSummary.window.hours[0]) : ""}</span></div></div>${this.loading ? `<div class="small">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
   }
   getCardSize() {
     return 4;
@@ -207,4 +284,4 @@ var LaufwetterCard = class extends HTMLElement {
 };
 customElements.define("laufwetter-card", LaufwetterCard);
 window.customCards = window.customCards || [];
-window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", version: CARD_VERSION, description: "Eigenst\xE4ndiger relativer Laufwetter-Index" });
+window.customCards.push({ type: "laufwetter-card", name: "Laufwetter Card", version: CARD_VERSION, description: "Konkrete Laufzeiten f\xFCr heute und morgen" });
