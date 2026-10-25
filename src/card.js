@@ -1,18 +1,22 @@
 import {scoreHour,bestWindow,scoreLabel} from "./scoring.js";
 import {normalizeForecast} from "./forecast.js";
 class LaufwetterCard extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:"open"});this.forecast=[];this.error="";this.loading=false;this.lastFetch=0;}
+  constructor(){super();this.attachShadow({mode:"open"});this.forecast=[];this.error="";this.loading=false;this.lastFetch=0;this.requestId=0;}
+  disconnectedCallback(){this.requestId++;}
   setConfig(config){if(!config.entity)throw Error("Bitte eine weather-Entität angeben.");this.config={title:"Laufwetter",location:"",duration:60,refresh_minutes:30,...config};this.render();}
   set hass(hass){this._hass=hass;if(!this.config)return;this.render();const now=Date.now();if(!this.loading&&(now-this.lastFetch>=Math.max(5,Number(this.config.refresh_minutes))*60000)){this.fetchForecast();}}
-  async fetchForecast(){if(!this._hass?.callWS||!this.config)return;this.loading=true;this.lastFetch=Date.now();try{
+  async fetchForecast(){if(!this._hass?.callWS||!this.config)return;this.loading=true;this.lastFetch=Date.now();const requestId=this.requestId;try{
     const result=await this._hass.callWS({type:"call_service",domain:"weather",service:"get_forecasts",service_data:{type:"hourly"},target:{entity_id:this.config.entity},return_response:true});
+    if(requestId!==this.requestId)return;
     const data=result?.response||result;
     const forecast=data?.[this.config.entity]?.forecast;
     if(!Array.isArray(forecast))throw Error("Keine stündliche Prognose verfügbar.");
-    this.forecast=normalizeForecast(forecast,this._hass.config?.unit_system||{});this.error="";
-  }catch(err){this.error=String(err.message||err);this.forecast=[];}finally{this.loading=false;this.render();}}
+    const entity=this._hass.states?.[this.config.entity];
+    const units={...this._hass.config?.unit_system,...entity?.attributes};
+    this.forecast=normalizeForecast(forecast,{temperature:units.temperature_unit||units.temperature,wind_speed:units.wind_speed_unit||units.wind_speed});this.error="";
+  }catch(err){if(requestId===this.requestId){this.error=String(err.message||err);this.forecast=[];}}finally{this.loading=false;this.render();}}
   render(){if(!this.shadowRoot||!this.config)return;
-    const now=Date.now(),hours=this.forecast.filter(h=>Date.parse(h.datetime)>=now-3600000).slice(0,24).map(h=>({...h,...scoreHour(h)}));
+    const now=Date.now(),hours=this.forecast.filter(h=>Date.parse(h.datetime)>=now).slice(0,24).map(h=>({...h,...scoreHour(h)}));
     const best=bestWindow(hours,Number(this.config.duration)||60),first=hours[0],s=first?.score;
     const format=dt=>new Intl.DateTimeFormat("de-DE",{hour:"2-digit",minute:"2-digit"}).format(new Date(dt));
     const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));

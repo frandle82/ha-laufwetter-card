@@ -7,12 +7,17 @@ export const scoreRange=(value,idealMin,idealMax,low,high)=>{
   return clamp(100*(high-value)/(high-idealMax));
 };
 export function scoreHour(h){
+  const finite=value=>Number.isFinite(value)?value:null;
+  const temperature=finite(h.temperature), precipitationProbability=finite(h.precipitation_probability);
+  const precipitation=finite(h.precipitation), windSpeed=finite(h.wind_speed);
+  const humidity=finite(h.humidity), uvIndex=finite(h.uv_index);
+  const gust=finite(h.wind_gust_speed);
   const factors={
-    temperature:scoreRange(h.temperature,8,15,-10,34),
-    rain:h.precipitation_probability!=null?clamp(100-h.precipitation_probability):h.precipitation!=null?clamp(100-h.precipitation*35):null,
-    wind:h.wind_speed!=null?scoreRange(h.wind_speed,0,12,0,55):null,
-    humidity:h.humidity!=null?scoreRange(h.humidity,35,70,10,100):null,
-    uv:h.uv_index!=null?clamp(100-Math.max(0,h.uv_index-3)*18):null
+    temperature:scoreRange(temperature,8,15,-10,34),
+    rain:precipitationProbability!=null?clamp(100-precipitationProbability):precipitation!=null?clamp(100-precipitation*35):null,
+    wind:windSpeed!=null?scoreRange(windSpeed,0,12,0,55):null,
+    humidity:humidity!=null?scoreRange(humidity,35,70,10,100):null,
+    uv:uvIndex!=null?clamp(100-Math.max(0,uvIndex-3)*18):null
   };
   const weights={temperature:0.4,rain:0.3,wind:0.15,humidity:0.1,uv:0.05};
   const available=Object.keys(factors).filter(k=>factors[k]!==null);
@@ -21,8 +26,8 @@ export function scoreHour(h){
   let score=available.reduce((sum,k)=>sum+factors[k]*weights[k],0)/total;
   const condition=String(h.condition||"").toLowerCase();
   if(/lightning|hail|exceptional/.test(condition))score=Math.min(score,10);
-  if(h.temperature!=null&&(h.temperature<=-10||h.temperature>=35))score=Math.min(score,20);
-  if(h.wind_gust_speed!=null&&h.wind_gust_speed>=65)score=Math.min(score,20);
+  if(temperature!=null&&(temperature<=-10||temperature>=35))score=Math.min(score,20);
+  if(gust!=null&&gust>=65)score=Math.min(score,20);
   return {score:Math.round(clamp(score)),factors,coverage:Math.round(total*100)};
 }
 export function bestWindow(hours,duration=60){
