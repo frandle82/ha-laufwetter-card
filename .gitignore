@@ -1,2 +1,15 @@
 node_modules/
 .DS_Store
+
+# Local agent instructions; never publish.
+AGENTS.md
+AGENTS.override.md
+
+# Internal review reports, work instructions and temporary notes.
+ANTIGRAVITY_REVIEW.md
+REVIEW_*.md
+*_REVIEW.md
+*_REPORT.md
+*.review.md
+*.work.md
+*.tmp.md
