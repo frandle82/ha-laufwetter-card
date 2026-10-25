@@ -1,15 +1,18 @@
-export function normalizeForecast(forecast,unitSystem={}){
-  const temperatureUnit=unitSystem.temperature||"°C";
-  const windUnit=unitSystem.wind_speed||"km/h";
-  const toC=t=>t==null?null:temperatureUnit==="°F"?(Number(t)-32)*5/9:Number(t);
-  const toKmh=v=>v==null?null:windUnit==="mph"?Number(v)*1.609344:windUnit==="m/s"?Number(v)*3.6:windUnit==="kn"?Number(v)*1.852:Number(v);
-  return (forecast||[]).filter(x=>x.datetime&&!Number.isNaN(Date.parse(x.datetime))).map(x=>({
-    datetime:x.datetime,temperature:toC(x.temperature),
-    precipitation_probability:x.precipitation_probability!=null?Number(x.precipitation_probability):null,
-    precipitation:x.precipitation!=null?Number(x.precipitation):null,
-    wind_speed:toKmh(x.wind_speed),wind_gust_speed:toKmh(x.wind_gust_speed),
-    humidity:x.humidity!=null?Number(x.humidity):null,
-    uv_index:x.uv_index!=null?Number(x.uv_index):null,
-    condition:x.condition||""
-  })).sort((a,b)=>Date.parse(a.datetime)-Date.parse(b.datetime));
+const finite = value => {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+export function normalizeForecast(forecast, units = {}) {
+  const temperatureUnit = units.temperature || "°C", windUnit = units.wind_speed || "km/h";
+  const toCelsius = value => { const number = finite(value); return number == null ? null : temperatureUnit === "°F" ? (number - 32) * 5 / 9 : number; };
+  const toKmh = value => { const number = finite(value); if (number == null) return null; return windUnit === "mph" ? number * 1.609344 : windUnit === "m/s" ? number * 3.6 : windUnit === "kn" ? number * 1.852 : number; };
+  return (forecast || []).filter(item => item?.datetime && Number.isFinite(Date.parse(item.datetime))).map(item => ({
+    datetime: item.datetime, temperature: toCelsius(item.temperature), precipitation_probability: finite(item.precipitation_probability), precipitation: finite(item.precipitation),
+    wind_speed: toKmh(item.wind_speed), wind_gust_speed: toKmh(item.wind_gust_speed), humidity: finite(item.humidity), uv_index: finite(item.uv_index), condition: String(item.condition || "")
+  })).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
+}
+export function unitSnapshot(hass, entityId) {
+  const attrs = hass?.states?.[entityId]?.attributes || {};
+  return { temperature: attrs.temperature_unit || hass?.config?.unit_system?.temperature || "°C", wind_speed: attrs.wind_speed_unit || hass?.config?.unit_system?.wind_speed || "km/h", precipitation: attrs.precipitation_unit || "mm" };
 }
