@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { formatDateTime, formatTime } from "../src/format.js";
 import { selectRunWindow, qualityLabel } from "../src/windows.js";
+import { daylightStatus } from "../src/daylight.js";
 
 class TestElement { attachShadow() { this.shadowRoot = { innerHTML: "" }; return this.shadowRoot; } }
 const registry = new Map();
@@ -43,6 +44,13 @@ test("does not recommend an entirely unfavorable or nighttime window", () => {
   const daylight = { sunrise: "2099-01-01T08:00:00Z", sunset: "2099-01-01T16:00:00Z" };
   const night = forecast.slice(0, 2).map((hour, index) => ({ ...hour, datetime: `2099-01-01T0${index + 2}:00:00Z`, points: 20, risks: [] }));
   assert.equal(selectRunWindow(night, { duration: 60, includePast: true, sun: daylight }), null);
+});
+test("classifies daylight per forecast date and keeps missing sun data unknown", () => {
+  const place = { latitude: 53.63, longitude: 11.41 };
+  assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }, place), "day");
+  assert.equal(daylightStatus({ datetime: "2026-10-26T12:00:00+01:00", condition: "sunny" }, place), "day");
+  assert.equal(daylightStatus({ datetime: "2026-10-25T01:00:00+02:00", condition: "clear" }, place), "night");
+  assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }), "unknown");
 });
 test("empty forecast and service error render inside card", async () => {
   const empty = new Card(); empty.setConfig(config); empty.hass = { states, callWS: async () => ({ response: { "weather.schwerin": { forecast: [] } } }) }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(empty.shadowRoot.innerHTML, /Keine zukünftigen Stunden/);
