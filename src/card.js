@@ -22,7 +22,9 @@ class LaufwetterCard extends HTMLElement {
   async fetchForecast() {
     if (!this._hass?.callWS || !this.config) return; this.loading = true; this.status = "loading"; this.lastFetch = Date.now(); this.requestMeta = { type: "hourly", target: [this.config.entity], response: "pending", error: "" }; const requestId = this.requestId; this.render();
     try {
-      const result = await this._hass.callWS({ type: "call_service", domain: "weather", service: "get_forecasts", service_data: { type: "hourly" }, target: { entity_id: [this.config.entity] }, return_response: true });
+      const request = { type: "call_service", domain: "weather", service: "get_forecasts", service_data: { type: "hourly" }, target: { entity_id: [this.config.entity] }, return_response: true };
+      this.requestMeta.request = request;
+      const result = await this._hass.callWS(request);
       if (requestId !== this.requestId) return;
       const data = result?.response ?? result, entityResponse = data?.[this.config.entity], raw = entityResponse?.forecast;
       this.requestMeta.response = entityResponse ? "entity-response" : "no-entity-response";

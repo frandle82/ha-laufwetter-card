@@ -15,6 +15,7 @@ const hass = (response, states = { "weather.schwerin": { state: "sunny", attribu
 const forecastResponse = { response: { "weather.schwerin": { forecast: [{ datetime: "2099-01-01T12:00:00Z", temperature: 12, precipitation: 0, wind_speed: 5 }] } } };
 
 test("exact YAML config initializes without extra parameters", () => { const card = new Card(); card.setConfig(config); assert.equal(card.status, "waiting"); assert.match(card.shadowRoot.innerHTML, /Warte auf Home-Assistant-Daten/); });
+test("incomplete entity id gets a clear configuration error", () => { const card = new Card(); assert.throws(() => card.setConfig({ ...config, entity: "weather" }), /gültige weather-Entität/); });
 test("missing hass stays in waiting state", () => { const card = new Card(); card.setConfig(config); card.hass = undefined; assert.equal(card.status, "waiting"); });
 test("missing weather entity is shown inside card", () => { const card = new Card(); card.setConfig(config); card.hass = hass(forecastResponse, {}); assert.equal(card.status, "entity-missing"); assert.match(card.shadowRoot.innerHTML, /weather\.schwerin/); });
 test("non-weather entity is rejected before service call", () => { let calls = 0; const card = new Card(); card.setConfig(config); card.hass = { ...hass(forecastResponse, { "weather.schwerin": { entity_id: "sensor.schwerin", state: "ok" } }), callWS: async () => { calls++; } }; assert.equal(card.status, "entity-missing"); assert.equal(calls, 0); });
