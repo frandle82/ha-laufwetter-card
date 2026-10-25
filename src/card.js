@@ -7,7 +7,8 @@ import { CARD_STYLES } from "./card-styles.js";
 
 const CARD_VERSION = "0.2.0";
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const dayName = value => { try { return new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }).format(new Date(value)); } catch { return "Unbekannter Tag"; } };
+const dayName = value => { try { return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(new Date(value)); } catch { return "Unbekannter Tag"; } };
+const shortDate = value => { try { return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "long" }).format(new Date(value)); } catch { return ""; } };
 const rangeText = window => window ? `${formatTime(window.hours[0].datetime)}–${formatTime(new Date(Date.parse(window.hours.at(-1).datetime) + 60 * 60000))} Uhr` : "Keine empfehlenswerte Laufzeit.";
 
 const metrics = hours => {
@@ -18,10 +19,21 @@ const metrics = hours => {
   return `${temp} · ${winds.length ? `${Math.round(Math.max(...winds))} km/h Wind` : "– Wind"}${gusts.length ? ` · ${Math.round(Math.max(...gusts))} km/h Böen` : ""} · ${rain.length ? `${Math.max(...rain).toFixed(1)} mm/h Regen` : "– Regen"}`;
 };
 
-const renderHeader = config => `<header class="card-header"><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</header>`;
-const renderDaySummary = (label, hours, summary) => `<section class="day-summary"><h2 class="day-summary__title">${label} · ${hours.length ? esc(dayName(hours[0].datetime)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(rangeText(summary.window))}</div><div class="day-summary__metrics">${esc(metrics(summary.window?.hours || hours))}</div></section>`;
+const weatherIcon = hours => {
+  const condition = String(hours?.[0]?.condition || "").toLowerCase();
+  if (condition.includes("lightning")) return "mdi:weather-lightning";
+  if (condition.includes("rain")) return "mdi:weather-rainy";
+  if (condition.includes("snow")) return "mdi:weather-snowy";
+  if (condition.includes("cloud")) return "mdi:weather-cloudy";
+  return "mdi:weather-partly-cloudy";
+};
+const renderHeader = config => `<header class="card-header"><div><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</div><ha-icon class="header-icon" icon="mdi:run"></ha-icon></header>`;
+const renderDaySummary = (label, hours, summary) => {
+  const summaryHours = summary.window?.hours || hours;
+  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} · ${hours.length ? esc(dayName(hours[0].datetime)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(rangeText(summary.window))}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
+};
 const timelineColor = (hour, selected, isNight) => isNight(hour) ? "#8b95a5" : hour.risks?.length || !hour.marked ? "#d66b61" : selected.has(hour.datetime) ? "#22a06b" : "#e9b44c";
-const renderTimeline = (hours, selected, isNight) => `<div class="timeline" aria-label="Stündliche Wetterqualität heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(hours[index - 1].datetime).getDate() ? " timeline-hour--day-start" : ""}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen möglich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${new Date(hour.datetime).getHours()}</span></div>`).join("") : "<span class='meta'>Keine zukünftigen Stunden verfügbar.</span>"}</div>`;
+const renderTimeline = (hours, selected, isNight) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time>${esc(shortDate(hours[0].datetime))}</time>` : ""}</div><div class="timeline" aria-label="Stündliche Wetterqualität heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(hours[index - 1].datetime).getDate() ? " timeline-hour--day-start" : ""}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen möglich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${new Date(hour.datetime).getHours()}</span></div>`).join("") : "<span class='meta'>Keine zukünftigen Stunden verfügbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ungünstig</span><span class="legend-ok">Möglich</span><span class="legend-best">Empfohlen</span></div></section>`;
 
 class LaufwetterCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: "open" }); this.forecast = []; this.error = ""; this.loading = false; this.lastFetch = 0; this.requestId = 0; }

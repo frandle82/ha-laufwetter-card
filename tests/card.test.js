@@ -30,13 +30,17 @@ test("uses configurable title and optional location below the title", () => {
   const card = new Card(); card.setConfig({ ...config, title: "Mein Laufwetter", show_location: true });
   assert.match(card.shadowRoot.innerHTML, /Mein Laufwetter/);
   assert.match(card.shadowRoot.innerHTML, /Schwerin/);
-  assert.doesNotMatch(card.shadowRoot.innerHTML, /Laufwetter-Punktzahl|Sehr gut|Eingeschränkt|Ungünstig/);
+  assert.doesNotMatch(card.shadowRoot.innerHTML, /Laufwetter-Punktzahl|Sehr gut|Eingeschränkt/);
 });
 test("renders reusable header, summaries and scrollable timeline structure", () => {
   const card = new Card(); card.setConfig(config);
   assert.match(card.shadowRoot.innerHTML, /card-header/);
   assert.match(card.shadowRoot.innerHTML, /day-summary/);
+  assert.match(card.shadowRoot.innerHTML, /mdi:run/);
+  assert.match(card.shadowRoot.innerHTML, /Laufbedingungen/);
+  assert.match(card.shadowRoot.innerHTML, /Nacht.*Ungünstig.*Möglich.*Empfohlen/);
   assert.match(card.shadowRoot.innerHTML, /overflow-x:auto/);
+  assert.match(card.shadowRoot.innerHTML, /height:34px/);
   assert.match(card.shadowRoot.innerHTML, /timeline-hour/);
 });
 test("selects a complete, contiguous run window", () => {
@@ -77,4 +81,6 @@ test("keeps available day metrics when no marked run window exists", async () =>
   card.setConfig(config); card.hass = { states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast: current } } }) };
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.match(card.shadowRoot.innerHTML, /10 °C/);
+  assert.match(card.shadowRoot.innerHTML, /style="background:#d66b61"/);
+  assert.doesNotMatch(card.shadowRoot.innerHTML, /style="height:/);
 });

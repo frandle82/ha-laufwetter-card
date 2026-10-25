@@ -233,10 +233,10 @@ function daylightPoints(hour, config = {}) {
 // src/card-styles.js
 var CARD_STYLES = `
 :host{display:block}ha-card{display:block;padding:14px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}
-.card-header{padding-bottom:10px}.card-title{font-size:16px;font-weight:600;line-height:1.25}.location,.meta{font-size:12px;color:var(--secondary-text-color)}.location{display:block;margin-top:2px}
-.day-summary{padding:9px 0;border-top:1px solid var(--divider-color)}.day-summary__title{margin:0;font-size:13px;font-weight:600;line-height:1.3}.day-summary__window{margin-top:4px;font-size:17px;font-weight:600;line-height:1.3}.day-summary__metrics{margin-top:3px;font-size:12px;color:var(--secondary-text-color);line-height:1.4}
-.timeline{display:flex;align-items:end;gap:4px;overflow-x:auto;height:120px;margin:12px -2px;padding:0 2px 2px;scroll-snap-type:x proximity}.timeline-hour{height:100%;min-width:24px;display:flex;flex-direction:column;align-items:center;justify-content:end;gap:5px;font-size:10px;line-height:1;scroll-snap-align:start}.timeline-hour--day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:3px}.timeline-bar{width:100%;min-height:8px;border-radius:3px 3px 1px 1px}.timeline-label{color:var(--secondary-text-color)}
-.state{margin-top:8px;font-size:12px}.state--error{color:var(--error-color)}details{margin-top:10px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:360px){ha-card{padding:12px}.day-summary__window{font-size:16px}.timeline-hour{min-width:22px}}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:1px solid var(--divider-color)}.card-title{font-size:16px;font-weight:600;line-height:1.25}.header-icon,.weather-icon{width:18px;height:18px;color:var(--secondary-text-color)}.location,.meta{font-size:12px;color:var(--secondary-text-color)}.location{display:block;margin-top:2px}
+.day-summary{position:relative;padding:10px 0;border-bottom:1px solid var(--divider-color)}.day-summary__title{margin:0;font-size:13px;font-weight:600;line-height:1.3}.day-summary__window{margin-top:4px;font-size:18px;font-weight:600;line-height:1.3}.day-summary__metrics{margin-top:3px;padding-right:24px;font-size:12px;color:var(--secondary-text-color);line-height:1.4}.weather-icon{position:absolute;right:0;top:13px}
+.timeline-section{padding:10px 0;border-bottom:1px solid var(--divider-color)}.timeline-heading{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600}.timeline-heading time{font-weight:400;color:var(--secondary-text-color)}.timeline{display:flex;align-items:flex-start;gap:3px;overflow-x:auto;margin:0 -2px;padding:0 2px 3px;scroll-snap-type:x proximity}.timeline-hour{min-width:24px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;line-height:1;scroll-snap-align:start}.timeline-hour--day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:3px}.timeline-bar{width:100%;height:34px;box-sizing:border-box;border-radius:4px}.timeline-label{color:var(--secondary-text-color)}.timeline-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px 8px;margin-top:8px;font-size:10px;color:var(--secondary-text-color)}.timeline-legend span::before{content:"";display:inline-block;width:7px;height:7px;margin-right:3px;border-radius:2px;background:currentColor}.legend-night{color:#8b95a5}.legend-bad{color:#d66b61}.legend-ok{color:#e9b44c}.legend-best{color:#22a06b}
+.state{margin-top:8px;font-size:12px}.state--error{color:var(--error-color)}details{margin-top:10px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}@media(max-width:360px){ha-card{padding:12px}.day-summary__window{font-size:17px}.timeline-hour{min-width:22px}}
 `;
 
 // src/card.js
@@ -244,9 +244,16 @@ var CARD_VERSION = "0.2.0";
 var esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 var dayName = (value) => {
   try {
-    return new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }).format(new Date(value));
+    return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }).format(new Date(value));
   } catch {
     return "Unbekannter Tag";
+  }
+};
+var shortDate = (value) => {
+  try {
+    return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "long" }).format(new Date(value));
+  } catch {
+    return "";
   }
 };
 var rangeText = (window2) => window2 ? `${formatTime(window2.hours[0].datetime)}\u2013${formatTime(new Date(Date.parse(window2.hours.at(-1).datetime) + 60 * 6e4))} Uhr` : "Keine empfehlenswerte Laufzeit.";
@@ -257,10 +264,21 @@ var metrics = (hours) => {
   const temp = temperatures.length ? Math.min(...temperatures) === Math.max(...temperatures) ? `${Math.round(temperatures[0])} \xB0C` : `${Math.round(Math.min(...temperatures))}\u2013${Math.round(Math.max(...temperatures))} \xB0C` : "\u2013";
   return `${temp} \xB7 ${winds.length ? `${Math.round(Math.max(...winds))} km/h Wind` : "\u2013 Wind"}${gusts.length ? ` \xB7 ${Math.round(Math.max(...gusts))} km/h B\xF6en` : ""} \xB7 ${rain.length ? `${Math.max(...rain).toFixed(1)} mm/h Regen` : "\u2013 Regen"}`;
 };
-var renderHeader = (config) => `<header class="card-header"><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</header>`;
-var renderDaySummary = (label, hours, summary) => `<section class="day-summary"><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(rangeText(summary.window))}</div><div class="day-summary__metrics">${esc(metrics(summary.window?.hours || hours))}</div></section>`;
+var weatherIcon = (hours) => {
+  const condition = String(hours?.[0]?.condition || "").toLowerCase();
+  if (condition.includes("lightning")) return "mdi:weather-lightning";
+  if (condition.includes("rain")) return "mdi:weather-rainy";
+  if (condition.includes("snow")) return "mdi:weather-snowy";
+  if (condition.includes("cloud")) return "mdi:weather-cloudy";
+  return "mdi:weather-partly-cloudy";
+};
+var renderHeader = (config) => `<header class="card-header"><div><div class="card-title">${esc(config.title)}</div>${config.show_location && config.location ? `<span class="location">${esc(config.location)}</span>` : ""}</div><ha-icon class="header-icon" icon="mdi:run"></ha-icon></header>`;
+var renderDaySummary = (label, hours, summary) => {
+  const summaryHours = summary.window?.hours || hours;
+  return `<section class="day-summary"><ha-icon class="weather-icon" icon="${weatherIcon(summaryHours)}"></ha-icon><h2 class="day-summary__title">${label} \xB7 ${hours.length ? esc(dayName(hours[0].datetime)) : "keine Prognose"}</h2><div class="day-summary__window">${esc(rangeText(summary.window))}</div><div class="day-summary__metrics">${esc(metrics(summaryHours))}</div></section>`;
+};
 var timelineColor = (hour, selected, isNight) => isNight(hour) ? "#8b95a5" : hour.risks?.length || !hour.marked ? "#d66b61" : selected.has(hour.datetime) ? "#22a06b" : "#e9b44c";
-var renderTimeline = (hours, selected, isNight) => `<div class="timeline" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(hours[index - 1].datetime).getDate() ? " timeline-hour--day-start" : ""}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${new Date(hour.datetime).getHours()}</span></div>`).join("") : "<span class='meta'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div>`;
+var renderTimeline = (hours, selected, isNight) => `<section class="timeline-section"><div class="timeline-heading"><span>Laufbedingungen</span>${hours[0] ? `<time>${esc(shortDate(hours[0].datetime))}</time>` : ""}</div><div class="timeline" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${hours.length ? hours.map((hour, index) => `<div class="timeline-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(hours[index - 1].datetime).getDate() ? " timeline-hour--day-start" : ""}"><div class="timeline-bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="background:${timelineColor(hour, selected, isNight)}"></div><span class="timeline-label">${new Date(hour.datetime).getHours()}</span></div>`).join("") : "<span class='meta'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="timeline-legend" aria-label="Legende"><span class="legend-night">Nacht</span><span class="legend-bad">Ung\xFCnstig</span><span class="legend-ok">M\xF6glich</span><span class="legend-best">Empfohlen</span></div></section>`;
 var LaufwetterCard = class extends HTMLElement {
   constructor() {
     super();
