@@ -16,7 +16,7 @@ const daylight = (value, sun = {}) => {
   return date >= sunrise && date < sunset;
 };
 
-export function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
+export function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter(hour => includePast || Date.parse(hour.datetime) >= now)
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
@@ -25,6 +25,7 @@ export function selectRunWindow(hours, { duration = 60, now = Date.now(), includ
     const window = candidates.slice(index, index + needed);
     if (window.length < needed || window.some((hour, i) => i && Date.parse(hour.datetime) - Date.parse(window[i - 1].datetime) > 90 * 60000)) continue;
     if (!allowNightRuns && window.some(hour => getDaylightStatus ? getDaylightStatus(hour) === "night" : !daylight(hour.datetime, sun))) continue;
+    if (requireMarked && window.some(hour => !hour.marked)) continue;
     const risks = [...new Set(window.flatMap(hour => hour.risks || []))];
     const average = window.reduce((sum, hour) => sum + hour.points, 0) / window.length;
     if (risks.length || average < 0) continue;

@@ -23,16 +23,15 @@ function precipitationPoints(hour, weather) {
 export function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : new Date();
-  let points = date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 86400000).toDateString() ? 1 : 0;
-  const daylight = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun); if (daylight != null) points += daylight;
-  if (temperature != null) points += temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
-  if (humidity != null) points -= humidity / 10;
+  const components = { proximity: date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 86400000).toDateString() ? 1 : 0 };
+  let points = components.proximity;
+  const daylight = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun); components.daylight = daylight; if (daylight != null) points += daylight;
+  components.temperature = temperature == null ? null : temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19); if (components.temperature != null) points += components.temperature;
+  components.humidity = humidity == null ? null : -humidity / 10; if (components.humidity != null) points += components.humidity;
   const bft = beaufort(wind);
-  if (bft != null && bft >= 3) points += temperature != null && temperature < 15 ? -bft : temperature != null && temperature <= 19 ? -1 : bft <= 4 ? 1 : 0;
-  const precipitation = precipitationPoints(hour, weather); points += precipitation.points;
-  if (weather === "sun" && temperature != null) points += temperature <= 19 ? 4 : -8;
-  if (weather === "snow" || weather === "freezing-rain") points -= 8;
-  if (weather === "storm" || weather === "exceptional") points -= 16;
+  components.wind = bft != null && bft >= 3 ? temperature != null && temperature < 15 ? -bft : temperature != null && temperature <= 19 ? -1 : bft <= 4 ? 1 : 0 : 0; points += components.wind;
+  const precipitation = precipitationPoints(hour, weather); components.precipitation = precipitation.points; points += components.precipitation;
+  components.weather = weather === "sun" && temperature != null ? temperature <= 19 ? 4 : -8 : weather === "snow" || weather === "freezing-rain" ? -8 : weather === "storm" || weather === "exceptional" ? -16 : 0; points += components.weather;
   const risks = [];
   if (weather === "storm" || weather === "exceptional") risks.push("Gewitter oder Unwetter");
   if (gust != null && gust >= 65) risks.push("Sturm- oder Orkanböen"); else if (gust != null && gust >= 45) risks.push("starke Böen");
@@ -40,7 +39,7 @@ export function scoreHour(hour = {}, context = {}) {
   if (temperature != null && (temperature <= -10 || temperature >= 35)) risks.push("extreme Temperatur");
   if (hour.precipitation != null && hour.precipitation > 2) risks.push("Starkregen");
   if (hour.warning) risks.push(hour.warning);
-  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight != null };
+  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, components, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight != null };
 }
 export function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 86400000 : 0;

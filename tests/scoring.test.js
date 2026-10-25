@@ -17,6 +17,7 @@ test("night and sun transition receive daylight points", () => {
 test("uses externally calculated daylight points for forecast scoring", () => {
   const result = scoreHour({ datetime: "2026-01-02T12:00:00Z", temperature: 17 }, { now: "2026-01-01T00:00:00Z", daylightPoints: () => -16 });
   assert.equal(result.points, -5);
+  assert.equal(result.components.daylight, -16);
 });
 test("wind uses mean speed and Beaufort, gust is separate risk", () => {
   const result = scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 17, wind_speed: 20, wind_gust_speed: 70 }, { now: "2026-01-02T00:00:00Z" });

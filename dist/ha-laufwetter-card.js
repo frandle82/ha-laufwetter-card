@@ -38,18 +38,23 @@ function precipitationPoints(hour, weather) {
 function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : /* @__PURE__ */ new Date();
-  let points = date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 864e5).toDateString() ? 1 : 0;
+  const components = { proximity: date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 864e5).toDateString() ? 1 : 0 };
+  let points = components.proximity;
   const daylight2 = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun);
+  components.daylight = daylight2;
   if (daylight2 != null) points += daylight2;
-  if (temperature != null) points += temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
-  if (humidity != null) points -= humidity / 10;
+  components.temperature = temperature == null ? null : temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
+  if (components.temperature != null) points += components.temperature;
+  components.humidity = humidity == null ? null : -humidity / 10;
+  if (components.humidity != null) points += components.humidity;
   const bft = beaufort(wind);
-  if (bft != null && bft >= 3) points += temperature != null && temperature < 15 ? -bft : temperature != null && temperature <= 19 ? -1 : bft <= 4 ? 1 : 0;
+  components.wind = bft != null && bft >= 3 ? temperature != null && temperature < 15 ? -bft : temperature != null && temperature <= 19 ? -1 : bft <= 4 ? 1 : 0 : 0;
+  points += components.wind;
   const precipitation = precipitationPoints(hour, weather);
-  points += precipitation.points;
-  if (weather === "sun" && temperature != null) points += temperature <= 19 ? 4 : -8;
-  if (weather === "snow" || weather === "freezing-rain") points -= 8;
-  if (weather === "storm" || weather === "exceptional") points -= 16;
+  components.precipitation = precipitation.points;
+  points += components.precipitation;
+  components.weather = weather === "sun" && temperature != null ? temperature <= 19 ? 4 : -8 : weather === "snow" || weather === "freezing-rain" ? -8 : weather === "storm" || weather === "exceptional" ? -16 : 0;
+  points += components.weather;
   const risks = [];
   if (weather === "storm" || weather === "exceptional") risks.push("Gewitter oder Unwetter");
   if (gust != null && gust >= 65) risks.push("Sturm- oder Orkanb\xF6en");
@@ -58,7 +63,7 @@ function scoreHour(hour = {}, context = {}) {
   if (temperature != null && (temperature <= -10 || temperature >= 35)) risks.push("extreme Temperatur");
   if (hour.precipitation != null && hour.precipitation > 2) risks.push("Starkregen");
   if (hour.warning) risks.push(hour.warning);
-  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight2 != null };
+  return { points: Math.round(points * 10) / 10, score: Math.round(points * 10) / 10, components, risks: [...new Set(risks)], weatherClass: weather, beaufort: bft, precipitationKnown: precipitation.known, daylightKnown: daylight2 != null };
 }
 function selectRecommendations(hours, options = {}) {
   const horizonDays = hours.length ? (Date.parse(hours.at(-1).datetime) - Date.parse(hours[0].datetime)) / 864e5 : 0;
@@ -160,7 +165,7 @@ var daylight = (value, sun = {}) => {
   const date = new Date(value), sunrise = new Date(sun.sunrise), sunset = new Date(sun.sunset);
   return date >= sunrise && date < sunset;
 };
-function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
+function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter((hour) => includePast || Date.parse(hour.datetime) >= now).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
   let best = null;
@@ -168,6 +173,7 @@ function selectRunWindow(hours, { duration = 60, now = Date.now(), includePast =
     const window2 = candidates.slice(index, index + needed);
     if (window2.length < needed || window2.some((hour, i) => i && Date.parse(hour.datetime) - Date.parse(window2[i - 1].datetime) > 90 * 6e4)) continue;
     if (!allowNightRuns && window2.some((hour) => getDaylightStatus ? getDaylightStatus(hour) === "night" : !daylight(hour.datetime, sun))) continue;
+    if (requireMarked && window2.some((hour) => !hour.marked)) continue;
     const risks = [...new Set(window2.flatMap((hour) => hour.risks || []))];
     const average = window2.reduce((sum, hour) => sum + hour.points, 0) / window2.length;
     if (risks.length || average < 0) continue;
@@ -301,13 +307,15 @@ var LaufwetterCard = class extends HTMLElement {
   render() {
     if (!this.shadowRoot || !this.config) return;
     const now = Date.now();
-    const scored = scoreForecast(this.forecast, { now, daylightPoints: (hour) => daylightPoints(hour, this._hass?.config) });
+    const scoredResult = scoreForecast(this.forecast, { now, daylightPoints: (hour) => daylightPoints(hour, this._hass?.config) });
+    const markedHours = new Set(scoredResult.selection.marked.map((hour) => hour.datetime));
+    const scored = { ...scoredResult, hours: scoredResult.hours.map((hour) => ({ ...hour, marked: markedHours.has(hour.datetime) })) };
     const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
     const today = scored.hours.filter((hour) => localDayOffset(hour.datetime) === todayKey && Date.parse(hour.datetime) >= now);
     const tomorrow = scored.hours.filter((hour) => localDayOffset(hour.datetime) === tomorrowKey);
     const sunOptions = { daylightStatus: (hour) => daylightStatus(hour, this._hass?.config), allowNightRuns: this.config.allow_night_runs };
-    const todaySummary = daySummary(today, { ...sunOptions, duration: this.config.duration, now });
-    const tomorrowSummary = daySummary(tomorrow, { ...sunOptions, duration: this.config.duration, includePast: true });
+    const todaySummary = daySummary(today, { ...sunOptions, requireMarked: true, duration: this.config.duration, now });
+    const tomorrowSummary = daySummary(tomorrow, { ...sunOptions, requireMarked: true, duration: this.config.duration, includePast: true });
     const metrics = (window2) => {
       if (!window2?.length) return "Keine Daten";
       const values = (key) => window2.map((hour) => hour[key]).filter((value) => value != null);
@@ -318,10 +326,10 @@ var LaufwetterCard = class extends HTMLElement {
     const marked = new Set([...todaySummary.window?.hours || [], ...tomorrowSummary.window?.hours || []].map((hour) => hour.datetime));
     const chartHours = scored.hours.filter((hour) => Date.parse(hour.datetime) >= now);
     const isNight = (hour) => daylightStatus(hour, this._hass?.config) === "night";
-    const barColor = (hour) => isNight(hour) ? "#8b95a5" : hour.risks?.length ? "#d66b61" : marked.has(hour.datetime) ? "#22a06b" : "#e9b44c";
+    const barColor = (hour) => isNight(hour) ? "#8b95a5" : hour.risks?.length || !hour.marked ? "#d66b61" : marked.has(hour.datetime) ? "#22a06b" : "#e9b44c";
     const chart = chartHours.map((hour, index) => `<div class="chart-hour${index === 0 || new Date(hour.datetime).getDate() !== new Date(chartHours[index - 1].datetime).getDate() ? " day-start" : ""}"><div class="bar" title="${esc(formatDateTime(hour.datetime))}: ${esc(hour.risks?.join(", ") || "Laufen m\xF6glich")}" style="height:${Math.max(8, Math.min(100, 36 + hour.points * 3))}%;background:${barColor(hour)}"></div><span>${new Date(hour.datetime).getHours()}</span></div>`).join("");
-    const debug = this.config.debug ? `<details><summary>Debug</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, units: this.units, raw: this.rawForecast?.slice(0, 3), normalized: this.forecast.slice(0, 3), error: this.error }, null, 2))}</pre></details>` : "";
-    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{display:block;padding:14px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}h2{margin:0;font-size:14px;font-weight:600}.head{display:flex;justify-content:space-between;gap:12px;align-items:center}.head strong{font-size:16px;font-weight:600}.head .small{display:block;margin-top:2px}.small{font-size:12px;color:var(--secondary-text-color)}.section{padding:8px 0;border-bottom:1px solid var(--divider-color)}.window{padding:3px 0}.window strong{display:block;font-size:16px;font-weight:600}.metrics{justify-content:flex-start;margin-top:2px;font-size:12px}.chart{display:flex;align-items:end;gap:4px;overflow-x:auto;height:112px;margin:12px 0 3px;padding:0 2px}.chart-hour{height:100%;min-width:22px;display:flex;flex-direction:column;align-items:center;justify-content:end;gap:4px;font-size:10px}.chart-hour.day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:4px}.bar{width:100%;min-height:8px;border-radius:3px 3px 0 0}.error{color:var(--error-color);margin-top:12px;font-size:13px}details{margin-top:12px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}</style><ha-card><div class="head"><div><strong>${esc(this.config.title)}</strong>${this.config.show_location && this.config.location ? `<span class="small">${esc(this.config.location)}</span>` : ""}</div></div><div class="section"><h2>Heute \xB7 ${today.length ? esc(dayName(today[0].datetime)) : "keine Prognose"}</h2><div class="window"><strong>${todaySummary.window ? esc(rangeText(todaySummary.window)) : "Heute keine empfehlenswerte Laufzeit."}</strong></div><div class="metrics">${metrics(todaySummary.window?.hours || [])}</div></div><div class="chart" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${chart || "<span class='small'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="section"><h2>Morgen \xB7 ${tomorrow[0] ? esc(dayName(tomorrow[0].datetime)) : "keine Prognose"}</h2><div class="window"><strong>${tomorrowSummary.window ? esc(rangeText(tomorrowSummary.window)) : "Keine empfehlenswerte Laufzeit."}</strong></div><div class="metrics">${metrics(tomorrowSummary.window?.hours || [])}</div></div>${this.loading ? `<div class="small">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
+    const debug = this.config.debug ? `<details><summary>Debug</summary><pre>${esc(JSON.stringify({ entity: this.config.entity, threshold: scored.selection.threshold, selection: scored.selection.mode, hours: scored.hours.map((hour) => ({ datetime: hour.datetime, temperature: hour.temperature, wind_speed: hour.wind_speed, precipitation: hour.precipitation, humidity: hour.humidity, condition: hour.condition, daylight: daylightStatus(hour, this._hass?.config), components: hour.components, score: hour.points, marked: hour.marked, selected: marked.has(hour.datetime) })), error: this.error }, null, 2))}</pre></details>` : "";
+    this.shadowRoot.innerHTML = `<style>:host{display:block}ha-card{display:block;padding:14px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}h2{margin:0;font-size:14px;font-weight:600}.head{display:flex;justify-content:space-between;gap:12px;align-items:center}.head strong{font-size:16px;font-weight:600}.head .small{display:block;margin-top:2px}.small{font-size:12px;color:var(--secondary-text-color)}.section{padding:8px 0;border-bottom:1px solid var(--divider-color)}.window{padding:3px 0}.window strong{display:block;font-size:16px;font-weight:600}.metrics{justify-content:flex-start;margin-top:2px;font-size:12px}.chart{display:flex;align-items:end;gap:4px;overflow-x:auto;height:112px;margin:12px 0 3px;padding:0 2px}.chart-hour{height:100%;min-width:22px;display:flex;flex-direction:column;align-items:center;justify-content:end;gap:4px;font-size:10px}.chart-hour.day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:4px}.bar{width:100%;min-height:8px;border-radius:3px 3px 0 0}.error{color:var(--error-color);margin-top:12px;font-size:13px}details{margin-top:12px}pre{max-height:240px;overflow:auto;font-size:11px;white-space:pre-wrap}</style><ha-card><div class="head"><div><strong>${esc(this.config.title)}</strong>${this.config.show_location && this.config.location ? `<span class="small">${esc(this.config.location)}</span>` : ""}</div></div><div class="section"><h2>Heute \xB7 ${today.length ? esc(dayName(today[0].datetime)) : "keine Prognose"}</h2><div class="window"><strong>${todaySummary.window ? esc(rangeText(todaySummary.window)) : "Heute keine empfehlenswerte Laufzeit."}</strong></div><div class="metrics">${metrics(todaySummary.window?.hours || today)}</div></div><div class="chart" aria-label="St\xFCndliche Wetterqualit\xE4t heute und kommende Tage">${chart || "<span class='small'>Keine zuk\xFCnftigen Stunden verf\xFCgbar.</span>"}</div><div class="section"><h2>Morgen \xB7 ${tomorrow[0] ? esc(dayName(tomorrow[0].datetime)) : "keine Prognose"}</h2><div class="window"><strong>${tomorrowSummary.window ? esc(rangeText(tomorrowSummary.window)) : "Keine empfehlenswerte Laufzeit."}</strong></div><div class="metrics">${metrics(tomorrowSummary.window?.hours || tomorrow)}</div></div>${this.loading ? `<div class="small">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
   }
   getCardSize() {
     return 4;

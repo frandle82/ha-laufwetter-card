@@ -45,6 +45,10 @@ test("does not recommend an entirely unfavorable or nighttime window", () => {
   const night = forecast.slice(0, 2).map((hour, index) => ({ ...hour, datetime: `2099-01-01T0${index + 2}:00:00Z`, points: 20, risks: [] }));
   assert.equal(selectRunWindow(night, { duration: 60, includePast: true, sun: daylight }), null);
 });
+test("requires marked hours when selecting a relative-score window", () => {
+  const hours = forecast.map((hour, index) => ({ ...hour, points: 12, risks: [], marked: index === 1 }));
+  assert.equal(selectRunWindow(hours, { duration: 90, includePast: true, requireMarked: true }), null);
+});
 test("classifies daylight per forecast date and keeps missing sun data unknown", () => {
   const place = { latitude: 53.63, longitude: 11.41 };
   assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }, place), "day");
@@ -56,4 +60,10 @@ test("classifies daylight per forecast date and keeps missing sun data unknown",
 test("empty forecast and service error render inside card", async () => {
   const empty = new Card(); empty.setConfig(config); empty.hass = { states, callWS: async () => ({ response: { "weather.schwerin": { forecast: [] } } }) }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(empty.shadowRoot.innerHTML, /Keine zukünftigen Stunden/);
   const failed = new Card(); failed.setConfig(config); failed.hass = { states, callWS: async () => { throw Error("forecast failed"); } }; await new Promise(resolve => setTimeout(resolve, 0)); assert.match(failed.shadowRoot.innerHTML, /forecast failed/);
+});
+test("keeps available day metrics when no marked run window exists", async () => {
+  const card = new Card(); const current = [{ datetime: new Date(Date.now() + 60000).toISOString(), temperature: 10, precipitation: 1, wind_speed: 10, condition: "lightning" }];
+  card.setConfig(config); card.hass = { states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast: current } } }) };
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(card.shadowRoot.innerHTML, /10 °C/);
 });
