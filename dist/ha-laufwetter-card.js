@@ -117,6 +117,12 @@ function unitSnapshot(hass, entityId) {
 }
 
 // src/card.js
+function forecastFromResponse(result, entityId) {
+  const direct = result?.[entityId]?.forecast;
+  if (Array.isArray(direct)) return direct;
+  const wrapped = result?.response?.[entityId]?.forecast;
+  return Array.isArray(wrapped) ? wrapped : null;
+}
 var LaufwetterCard = class extends HTMLElement {
   constructor() {
     super();
@@ -189,7 +195,7 @@ var LaufwetterCard = class extends HTMLElement {
       this.requestMeta.request = request;
       const result = await this._hass.callWS(request);
       if (requestId !== this.requestId) return;
-      const data = result?.response ?? result, entityResponse = data?.[this.config.entity], raw = entityResponse?.forecast;
+      const raw = forecastFromResponse(result, this.config.entity), entityResponse = raw ? { forecast: raw } : null;
       this.requestMeta.response = entityResponse ? "entity-response" : "no-entity-response";
       if (!Array.isArray(raw)) throw Error("Diese Wetter-Entit\xE4t unterst\xFCtzt keine st\xFCndliche Prognose.");
       this.rawForecast = raw;

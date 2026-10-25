@@ -1,5 +1,11 @@
 import { scoreForecast } from "./scoring.js";
 import { normalizeForecast, unitSnapshot } from "./forecast.js";
+function forecastFromResponse(result, entityId) {
+  const direct = result?.[entityId]?.forecast;
+  if (Array.isArray(direct)) return direct;
+  const wrapped = result?.response?.[entityId]?.forecast;
+  return Array.isArray(wrapped) ? wrapped : null;
+}
 class LaufwetterCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: "open" }); this.forecast = []; this.error = ""; this.loading = false; this.lastFetch = 0; this.nextRetryAt = 0; this.requestId = 0; this.status = "uninitialized"; this.requestMeta = { type: "hourly", target: null, response: "none", error: "" }; }
   disconnectedCallback() { this.requestId++; }
@@ -30,7 +36,7 @@ class LaufwetterCard extends HTMLElement {
       this.requestMeta.request = request;
       const result = await this._hass.callWS(request);
       if (requestId !== this.requestId) return;
-      const data = result?.response ?? result, entityResponse = data?.[this.config.entity], raw = entityResponse?.forecast;
+      const raw = forecastFromResponse(result, this.config.entity), entityResponse = raw ? { forecast: raw } : null;
       this.requestMeta.response = entityResponse ? "entity-response" : "no-entity-response";
       if (!Array.isArray(raw)) throw Error("Diese Wetter-Entität unterstützt keine stündliche Prognose.");
       this.rawForecast = raw; this.units = unitSnapshot(this._hass, this.config.entity);
