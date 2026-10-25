@@ -30,6 +30,8 @@ Die additive Stundenbewertung folgt den veröffentlichten Regeln von [laufwetter
 
 Die öffentliche Quelle formuliert die Markierung als Score „über“ einer Schwelle; die Karte verwendet deshalb für ganzzahlige Schwellen strikt `>` statt `>=`. Bei weniger als zehn Tagen verwendet sie ausdrücklich eine eigene `Kurzfrist-Schwelle`: mindestens fünf markierte Stunden pro verfügbarem Tag, höchstens fünf Tage und höchstens 25 Stunden. Dies ist keine Behauptung über das Originalverfahren; eine Top-10-Auswahl wird nicht verwendet.
 
+Sicherheitswarnungen sind eine separate Kartenregel, nicht Teil der relativen Schwelle: Gewitter/Unwetter, Sturm- oder Orkanböen, mögliche Glätte, extreme Temperaturen, Starkregen und aktive `warning_entity`-Warnungen verhindern eine Laufempfehlung. `starke Böen` bleiben sichtbar, heben eine relativ markierte Empfehlung aber nicht pauschal auf.
+
 Die Karte ruft keine Daten von laufwetter.de ab. Home-Assistant-Anbieter liefern nicht zwingend DWD-MOSMIX-Daten, DWD-`ww`-Codes, Sonnenscheindauer oder die vollständigen Feuchtewerte. Daher ist die Bewertung nur dann mathematisch identisch, wenn diese Eingabedaten und alle nicht veröffentlichten Detailregeln übereinstimmen. Fehlende Niederschlagsmenge und Luftfeuchte werden nicht erfunden; eine reine Regenwahrscheinlichkeit wird nicht als Starkregen gewertet.
 
 Mit `debug: true` zeigt die Karte Rohwerte, normalisierte Werte und verwendete Einheiten. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.
