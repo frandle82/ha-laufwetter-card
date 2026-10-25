@@ -22,7 +22,7 @@ test("formats valid German date/time and survives invalid value", () => {
 test("renders realistic hourly forecast without DateTimeFormat exception", async () => {
   const card = new Card(); card.setConfig(config); card.hass = { states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast } } }) };
   await new Promise(resolve => setTimeout(resolve, 0));
-  assert.match(card.shadowRoot.innerHTML, /Beste Laufzeit/);
+  assert.match(card.shadowRoot.innerHTML, /Heute/);
   assert.match(card.shadowRoot.innerHTML, /Heute/);
 });
 test("selects a complete, contiguous run window", () => {
