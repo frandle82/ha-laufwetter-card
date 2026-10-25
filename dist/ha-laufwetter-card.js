@@ -311,7 +311,7 @@ var LaufwetterCard = class extends HTMLElement {
   }
   disconnectedCallback() {
     this.requestId++;
-    if (this.timelineFrame && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame);
+    if (this.timelineFrame !== null && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame);
   }
   setConfig(config) {
     if (!config?.entity) throw Error("Bitte eine weather-Entit\xE4t angeben.");
@@ -372,6 +372,8 @@ var LaufwetterCard = class extends HTMLElement {
   captureTimelineScroll() {
     const timeline = this.shadowRoot?.querySelector?.(".timeline");
     if (timeline) this.timelineScrollLeft = timeline.scrollLeft;
+    if (this.timelineFrame !== null && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame);
+    this.timelineFrame = null;
   }
   updateTimelineDate(timeline) {
     this.timelineScrollLeft = timeline.scrollLeft;
@@ -385,7 +387,8 @@ var LaufwetterCard = class extends HTMLElement {
     timeline.scrollLeft = this.timelineScrollLeft;
     this.updateTimelineDate(timeline);
     timeline.addEventListener?.("scroll", () => {
-      if (this.timelineFrame) return;
+      this.timelineScrollLeft = timeline.scrollLeft;
+      if (this.timelineFrame !== null) return;
       const update = () => {
         this.timelineFrame = null;
         this.updateTimelineDate(timeline);

@@ -37,7 +37,7 @@ const renderTimeline = (hours, selected, isNight) => `<section class="timeline-s
 
 class LaufwetterCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: "open" }); this.forecast = []; this.error = ""; this.loading = false; this.lastFetch = 0; this.requestId = 0; this.timelineScrollLeft = 0; this.scored = null; this.timelineFrame = null; }
-  disconnectedCallback() { this.requestId++; if (this.timelineFrame && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame); }
+  disconnectedCallback() { this.requestId++; if (this.timelineFrame !== null && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame); }
   setConfig(config) { if (!config?.entity) throw Error("Bitte eine weather-Entität angeben."); this.config = { title: "Laufwetter", location: "", show_location: false, duration: 60, refresh_minutes: 30, debug: false, sun_entity: "sun.sun", warning_entity: "", allow_night_runs: false, ...config }; this.scored = null; this.render(); }
   set hass(hass) { this._hass = hass; if (!this.config) return; this.render(); const refresh = Math.max(5, Number(this.config.refresh_minutes) || 30) * 60000; if (!this.loading && Date.now() - this.lastFetch >= refresh) this.fetchForecast(); }
   async fetchForecast() {
@@ -60,7 +60,12 @@ class LaufwetterCard extends HTMLElement {
     } catch (error) { if (requestId === this.requestId) this.error = String(error.message || error); }
     finally { if (requestId === this.requestId) { this.loading = false; this.render(); } }
   }
-  captureTimelineScroll() { const timeline = this.shadowRoot?.querySelector?.(".timeline"); if (timeline) this.timelineScrollLeft = timeline.scrollLeft; }
+  captureTimelineScroll() {
+    const timeline = this.shadowRoot?.querySelector?.(".timeline");
+    if (timeline) this.timelineScrollLeft = timeline.scrollLeft;
+    if (this.timelineFrame !== null && globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(this.timelineFrame);
+    this.timelineFrame = null;
+  }
   updateTimelineDate(timeline) {
     this.timelineScrollLeft = timeline.scrollLeft;
     const block = [...(timeline.querySelectorAll?.(".timeline-hour") || [])].find(hour => hour.offsetLeft + hour.offsetWidth > timeline.scrollLeft);
@@ -73,7 +78,8 @@ class LaufwetterCard extends HTMLElement {
     timeline.scrollLeft = this.timelineScrollLeft;
     this.updateTimelineDate(timeline);
     timeline.addEventListener?.("scroll", () => {
-      if (this.timelineFrame) return;
+      this.timelineScrollLeft = timeline.scrollLeft;
+      if (this.timelineFrame !== null) return;
       const update = () => {
         this.timelineFrame = null; this.updateTimelineDate(timeline);
       };

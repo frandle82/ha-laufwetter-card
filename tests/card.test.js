@@ -117,6 +117,21 @@ test("does not claim passed runs without historical forecast and summarizes nigh
   assert.equal(nightOnly.tomorrowMessage, "Morgen keine empfohlenen Laufzeiten.");
   assert.match(nightOnly.tomorrowSummary.exclusions[0].reason, /Nacht/);
 });
+test("keeps daily run-window selection independent across midnight", () => {
+  const todayOnly = overview([
+    { datetime: "2026-10-25T14:00:00+01:00", points: 8, marked: true, risks: [] },
+    { datetime: "2026-10-26T10:00:00+01:00", points: 8, marked: false, risks: [] }
+  ], "2026-10-25T12:00:00+01:00");
+  assert.ok(todayOnly.todaySummary.window);
+  assert.equal(todayOnly.tomorrowSummary.window, null);
+  const tomorrowOnly = overview([
+    { datetime: "2026-10-25T14:00:00+01:00", points: 8, marked: false, risks: [] },
+    { datetime: "2026-10-26T10:00:00+01:00", points: 8, marked: true, risks: [] }
+  ], "2026-10-25T12:00:00+01:00");
+  assert.equal(tomorrowOnly.todaySummary.window, null);
+  assert.ok(tomorrowOnly.tomorrowSummary.window);
+  assert.notEqual(localDayOffset("2026-10-25T23:00:00+01:00"), localDayOffset("2026-10-26T00:00:00+01:00"));
+});
 test("classifies daylight per forecast date and keeps missing sun data unknown", () => {
   const place = { latitude: 53.63, longitude: 11.41 };
   assert.equal(daylightStatus({ datetime: "2026-10-25T12:00:00+01:00", condition: "sunny" }, place), "day");
@@ -168,4 +183,24 @@ test("preserves timeline scroll after a forecast refresh", async () => {
   card.shadowRoot.timeline.scrollLeft = 48; card.lastFetch = 0;
   await card.fetchForecast();
   assert.equal(card.shadowRoot.timeline.scrollLeft, 48);
+});
+test("keeps latest scroll while a previous animation frame is pending", () => {
+  const request = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
+  let callback, cancelled;
+  globalThis.requestAnimationFrame = fn => { callback = fn; return 0; };
+  globalThis.cancelAnimationFrame = id => { cancelled = id; };
+  try {
+    const card = new Card(); card.setConfig(config);
+    card.shadowRoot.timeline.scrollLeft = 71; card.shadowRoot.timeline.listener();
+    assert.equal(card.timelineScrollLeft, 71);
+    card.hass = { states, callWS: async () => ({ response: { "weather.schwerin": { forecast: [] } } }) };
+    assert.equal(cancelled, 0);
+    assert.equal(card.shadowRoot.timeline.scrollLeft, 71);
+    assert.equal(card.timelineFrame, null);
+    callback?.();
+    assert.equal(card.shadowRoot.timeline.scrollLeft, 71);
+  } finally {
+    if (request === undefined) delete globalThis.requestAnimationFrame; else globalThis.requestAnimationFrame = request;
+    if (cancel === undefined) delete globalThis.cancelAnimationFrame; else globalThis.cancelAnimationFrame = cancel;
+  }
 });
