@@ -10,7 +10,7 @@ Frühe Entwicklungsversion (0.1.0). Die Bewertungslogik ist eine nachvollziehbar
 npm install
 npm run build
 ```
-Kopiere `dist/laufwetter-card.js` nach `/config/www/laufwetter-card.js`. Registriere in Home Assistant unter Dashboard-Ressourcen `/local/laufwetter-card.js` als JavaScript-Modul.
+HACS installiert `dist/ha-laufwetter-card.js`. Bei manueller Installation diese Datei als JavaScript-Modul unter Dashboard-Ressourcen registrieren.
 
 ```yaml
 type: custom:laufwetter-card
@@ -26,12 +26,14 @@ debug: false
 Die gewählte `weather`-Entität muss eine stündliche Vorhersage für `weather.get_forecasts` anbieten. Verfügbare Messgrößen hängen vom Wetteranbieter ab. Die Karte rechnet die üblichen Temperatureinheiten °C/°F und Windgeschwindigkeit km/h, mph, m/s, kn um.
 
 ## Bewertungsmodell
-V3 verwendet additive Stundenpunkte, inspiriert von der öffentlich dokumentierten Methodik von [laufwetter.de](https://laufwetter.de/wie_und_warum/), aber ohne Datenabruf dorthin. Berücksichtigt werden zeitliche Nähe, Tageslicht aus `sun.sun` (sofern vorhanden), Temperatur, Luftfeuchte, mittlerer Wind in Beaufort und Wetterzustand. Regen wird nur nach vorhandener Niederschlagsmenge klassifiziert; eine reine Wahrscheinlichkeit erfindet keine Intensität. Die relative Auswahl sucht bei mindestens zehn Tagen die höchste Schwelle zwischen -10 und +20 mit mindestens 25 Stunden an fünf Tagen. Bei kürzerem Forecast werden die besten verfügbaren Stunden markiert und der Zeitraum angezeigt. Gewitter, Sturm, Glätte, Starkregen und offizielle Warnentitäten bleiben unabhängige Risiken.
+Die additive Stundenbewertung folgt den veröffentlichten Regeln von [laufwetter.de](https://laufwetter.de/wie_und_warum/): zeitliche Nähe, Tageslicht, Temperatur, Luftfeuchte, Beaufort-Wind und Wetterlage. Die relative Auswahl sucht im Zehn-Tage-Horizont per Binärsuche die höchste Schwelle zwischen -10 und +20 mit mindestens 25 Stunden an fünf Tagen. Konkrete Laufzeitfenster sind eine eigene Erweiterung der Karte und verwenden dieselben Stundenscores.
+
+Die Karte ruft keine Daten von laufwetter.de ab. Home-Assistant-Anbieter liefern nicht zwingend DWD-MOSMIX-Daten, DWD-`ww`-Codes, Sonnenscheindauer oder die vollständigen Feuchtewerte. Daher ist die Bewertung nur dann mathematisch identisch, wenn diese Eingabedaten und alle nicht veröffentlichten Detailregeln übereinstimmen. Fehlende Niederschlagsmenge und Luftfeuchte werden nicht erfunden; eine reine Regenwahrscheinlichkeit wird nicht als Starkregen gewertet.
 
 Mit `debug: true` zeigt die Karte Rohwerte, normalisierte Werte und verwendete Einheiten. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.
 
-## Weiterentwicklung mit Antigravity
-Repository klonen und `npm install` ausführen. Die Berechnung liegt in `src/scoring.js`, die Wetterdaten-Normalisierung in `src/forecast.js`, die Darstellung in `src/card.js`. Änderungen auf einem eigenen Branch entwickeln und per Pull Request zusammenführen.
+## Weiterentwicklung
+Repository klonen und `npm install` ausführen. Die Berechnung liegt in `src/scoring.js`, die Wetterdaten-Normalisierung in `src/forecast.js`, die tagesgenaue Tageslichtberechnung in `src/daylight.js` und die Darstellung in `src/card.js`.
 
 ## Bekannte Grenzen
 Keine Laufzeit-Interpolation bei halbstündigen Starts; Modell nicht wissenschaftlich validiert; unbekannte Einheitenschemata und Wetterdienst-Eigenheiten müssen weiter getestet werden; keine externe Warnmeldungsintegration. Bitte nicht als alleinige Grundlage für Entscheidungen bei Unwetter verwenden.

@@ -2,7 +2,7 @@ import { scoreForecast } from "./scoring.js";
 import { normalizeForecast, unitSnapshot } from "./forecast.js";
 import { formatDateTime, formatTime } from "./format.js";
 import { daySummary, localDayOffset } from "./windows.js";
-import { daylightStatus } from "./daylight.js";
+import { daylightPoints, daylightStatus } from "./daylight.js";
 
 const CARD_VERSION = "0.2.0";
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -37,10 +37,10 @@ class LaufwetterCard extends HTMLElement {
   }
   render() {
     if (!this.shadowRoot || !this.config) return;
-    const now = Date.now(); const scored = scoreForecast(this.forecast, { now }); const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
+    const now = Date.now(); const scored = scoreForecast(this.forecast, { now, daylightPoints: hour => daylightPoints(hour, this._hass?.config) }); const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
     const today = scored.hours.filter(hour => localDayOffset(hour.datetime) === todayKey && Date.parse(hour.datetime) >= now); const tomorrow = scored.hours.filter(hour => localDayOffset(hour.datetime) === tomorrowKey);
     const sunOptions = { daylightStatus: hour => daylightStatus(hour, this._hass?.config), allowNightRuns: this.config.allow_night_runs };
-    const todaySummary = daySummary(today, { ...sunOptions, duration: this.config.duration, now }); const tomorrowSummary = daySummary(tomorrow, { duration: this.config.duration, includePast: true });
+    const todaySummary = daySummary(today, { ...sunOptions, duration: this.config.duration, now }); const tomorrowSummary = daySummary(tomorrow, { ...sunOptions, duration: this.config.duration, includePast: true });
     const metrics = window => { if (!window?.length) return "Keine Daten"; const values = key => window.map(hour => hour[key]).filter(value => value != null); const temperatures = values("temperature"), winds = values("wind_speed"), gusts = values("wind_gust_speed"), rain = values("precipitation"); const temp = temperatures.length ? (Math.min(...temperatures) === Math.max(...temperatures) ? `${Math.round(temperatures[0])} °C` : `${Math.round(Math.min(...temperatures))}–${Math.round(Math.max(...temperatures))} °C`) : "–"; return `${temp} · ${winds.length ? Math.round(Math.max(...winds)) + " km/h Wind" : "– Wind"}${gusts.length ? " · " + Math.round(Math.max(...gusts)) + " km/h Böen" : ""} · ${rain.length ? Math.max(...rain).toFixed(1) + " mm/h Regen" : "– Regen"}`; };
     const marked = new Set([...(todaySummary.window?.hours || []), ...(tomorrowSummary.window?.hours || [])].map(hour => hour.datetime));
     const chartHours = scored.hours.filter(hour => Date.parse(hour.datetime) >= now);

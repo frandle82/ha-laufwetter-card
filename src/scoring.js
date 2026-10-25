@@ -24,7 +24,7 @@ export function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : new Date();
   let points = date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 86400000).toDateString() ? 1 : 0;
-  const daylight = daytimeBonus(hour, context.sun); if (daylight != null) points += daylight;
+  const daylight = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun); if (daylight != null) points += daylight;
   if (temperature != null) points += temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
   if (humidity != null) points -= humidity / 10;
   const bft = beaufort(wind);

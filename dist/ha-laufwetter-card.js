@@ -39,7 +39,7 @@ function scoreHour(hour = {}, context = {}) {
   const temperature = finite(hour.temperature), humidity = finite(hour.humidity), wind = finite(hour.wind_speed), gust = finite(hour.wind_gust_speed);
   const weather = weatherStates[String(hour.condition || "").toLowerCase()] || "unknown", date = new Date(hour.datetime), now = context.now ? new Date(context.now) : /* @__PURE__ */ new Date();
   let points = date.toDateString() === now.toDateString() ? 2 : date.toDateString() === new Date(now.getTime() + 864e5).toDateString() ? 1 : 0;
-  const daylight2 = daytimeBonus(hour, context.sun);
+  const daylight2 = context.daylightPoints ? context.daylightPoints(hour) : daytimeBonus(hour, context.sun);
   if (daylight2 != null) points += daylight2;
   if (temperature != null) points += temperature < 15 ? temperature / 2 : temperature <= 19 ? 10 : 6 - 2 * (temperature - 19);
   if (humidity != null) points -= humidity / 10;
@@ -192,17 +192,31 @@ function daySummary(hours, options = {}) {
 
 // src/daylight.js
 var dayOfYear = (date) => Math.floor((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 0)) / 864e5);
-function daylightStatus(hour, config = {}) {
-  if (String(hour.condition || "").toLowerCase() === "clear-night") return "night";
+var solarTimes = (value, config = {}) => {
   const latitude = Number(config.latitude), longitude = Number(config.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return "unknown";
-  const date = new Date(hour.datetime), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(date) + 10) / 365) * Math.PI / 180;
-  const latitudeRadians = latitude * Math.PI / 180, cosine = -Math.tan(latitudeRadians) * Math.tan(declination);
-  if (cosine >= 1) return "night";
-  if (cosine <= -1) return "day";
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  const date = new Date(value), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(date) + 10) / 365) * Math.PI / 180;
+  const cosine = -Math.tan(latitude * Math.PI / 180) * Math.tan(declination);
+  if (cosine >= 1 || cosine <= -1) return { polar: cosine >= 1 ? "night" : "day" };
   const daylightMinutes = Math.acos(cosine) * 720 / Math.PI;
   const noon = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12) - longitude * 24e4;
-  return date.getTime() < noon - daylightMinutes * 6e4 || date.getTime() >= noon + daylightMinutes * 6e4 ? "night" : "day";
+  return { sunrise: noon - daylightMinutes * 6e4, sunset: noon + daylightMinutes * 6e4 };
+};
+function daylightStatus(hour, config = {}) {
+  if (String(hour.condition || "").toLowerCase() === "clear-night") return "night";
+  const times = solarTimes(hour.datetime, config);
+  if (!times) return "unknown";
+  if (times.polar) return times.polar;
+  const time = Date.parse(hour.datetime);
+  return time < times.sunrise || time >= times.sunset ? "night" : "day";
+}
+function daylightPoints(hour, config = {}) {
+  const status = daylightStatus(hour, config);
+  if (status === "night") return -16;
+  const times = solarTimes(hour.datetime, config);
+  if (!times || times.polar) return null;
+  const distance = Math.min(Math.abs(Date.parse(hour.datetime) - times.sunrise), Math.abs(Date.parse(hour.datetime) - times.sunset));
+  return distance < 60 * 6e4 ? 2 : distance < 120 * 6e4 ? 1 : 0;
 }
 
 // src/card.js
@@ -287,13 +301,13 @@ var LaufwetterCard = class extends HTMLElement {
   render() {
     if (!this.shadowRoot || !this.config) return;
     const now = Date.now();
-    const scored = scoreForecast(this.forecast, { now });
+    const scored = scoreForecast(this.forecast, { now, daylightPoints: (hour) => daylightPoints(hour, this._hass?.config) });
     const todayKey = localDayOffset(now), tomorrowKey = localDayOffset(now, 1);
     const today = scored.hours.filter((hour) => localDayOffset(hour.datetime) === todayKey && Date.parse(hour.datetime) >= now);
     const tomorrow = scored.hours.filter((hour) => localDayOffset(hour.datetime) === tomorrowKey);
     const sunOptions = { daylightStatus: (hour) => daylightStatus(hour, this._hass?.config), allowNightRuns: this.config.allow_night_runs };
     const todaySummary = daySummary(today, { ...sunOptions, duration: this.config.duration, now });
-    const tomorrowSummary = daySummary(tomorrow, { duration: this.config.duration, includePast: true });
+    const tomorrowSummary = daySummary(tomorrow, { ...sunOptions, duration: this.config.duration, includePast: true });
     const metrics = (window2) => {
       if (!window2?.length) return "Keine Daten";
       const values = (key) => window2.map((hour) => hour[key]).filter((value) => value != null);

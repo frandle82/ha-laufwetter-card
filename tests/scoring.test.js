@@ -14,6 +14,10 @@ test("night and sun transition receive daylight points", () => {
   assert.equal(scoreHour({ datetime: "2026-01-02T03:00:00Z", temperature: 17 }, { now: "2026-01-01T00:00:00Z", sun }).points, -5);
   assert.equal(scoreHour({ datetime: "2026-01-02T07:00:00Z", temperature: 17 }, { now: "2026-01-01T00:00:00Z", sun }).points, 13);
 });
+test("uses externally calculated daylight points for forecast scoring", () => {
+  const result = scoreHour({ datetime: "2026-01-02T12:00:00Z", temperature: 17 }, { now: "2026-01-01T00:00:00Z", daylightPoints: () => -16 });
+  assert.equal(result.points, -5);
+});
 test("wind uses mean speed and Beaufort, gust is separate risk", () => {
   const result = scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 17, wind_speed: 20, wind_gust_speed: 70 }, { now: "2026-01-02T00:00:00Z" });
   assert.equal(result.beaufort, 4); assert.ok(result.risks.some(risk => risk.includes("Sturm")));

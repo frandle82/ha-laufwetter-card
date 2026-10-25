@@ -1,14 +1,30 @@
 const dayOfYear = date => Math.floor((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 0)) / 86400000);
 
-export function daylightStatus(hour, config = {}) {
-  if (String(hour.condition || "").toLowerCase() === "clear-night") return "night";
+const solarTimes = (value, config = {}) => {
   const latitude = Number(config.latitude), longitude = Number(config.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return "unknown";
-  const date = new Date(hour.datetime), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(date) + 10) / 365) * Math.PI / 180;
-  const latitudeRadians = latitude * Math.PI / 180, cosine = -Math.tan(latitudeRadians) * Math.tan(declination);
-  if (cosine >= 1) return "night";
-  if (cosine <= -1) return "day";
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  const date = new Date(value), declination = -23.44 * Math.cos(2 * Math.PI * (dayOfYear(date) + 10) / 365) * Math.PI / 180;
+  const cosine = -Math.tan(latitude * Math.PI / 180) * Math.tan(declination);
+  if (cosine >= 1 || cosine <= -1) return { polar: cosine >= 1 ? "night" : "day" };
   const daylightMinutes = Math.acos(cosine) * 720 / Math.PI;
   const noon = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12) - longitude * 240000;
-  return date.getTime() < noon - daylightMinutes * 60000 || date.getTime() >= noon + daylightMinutes * 60000 ? "night" : "day";
+  return { sunrise: noon - daylightMinutes * 60000, sunset: noon + daylightMinutes * 60000 };
+};
+
+export function daylightStatus(hour, config = {}) {
+  if (String(hour.condition || "").toLowerCase() === "clear-night") return "night";
+  const times = solarTimes(hour.datetime, config);
+  if (!times) return "unknown";
+  if (times.polar) return times.polar;
+  const time = Date.parse(hour.datetime);
+  return time < times.sunrise || time >= times.sunset ? "night" : "day";
+}
+
+export function daylightPoints(hour, config = {}) {
+  const status = daylightStatus(hour, config);
+  if (status === "night") return -16;
+  const times = solarTimes(hour.datetime, config);
+  if (!times || times.polar) return null;
+  const distance = Math.min(Math.abs(Date.parse(hour.datetime) - times.sunrise), Math.abs(Date.parse(hour.datetime) - times.sunset));
+  return distance < 60 * 60000 ? 2 : distance < 120 * 60000 ? 1 : 0;
 }
