@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/card.js --bundle --format=esm --target=es2020 --outfile=dist/laufwetter-card.js",
+    "build": "esbuild src/card.js --bundle --format=esm --target=es2020 --outfile=dist/ha-laufwetter-card.js",
     "test": "node --test"
   },
   "devDependencies": {
