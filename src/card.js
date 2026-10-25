@@ -23,7 +23,7 @@ class LaufwetterCard extends HTMLElement {
     if (!this.shadowRoot || !this.config) return;
     const sun = this._hass?.states?.[this.config.sun_entity]?.attributes || {}, sunData = { sunrise: sun.next_rising, sunset: sun.next_setting };
     const now = Date.now(), future = this.forecast.filter(hour => Date.parse(hour.datetime) >= now), scored = scoreForecast(future, { now, sun: sunData }), hours = scored.hours, selection = scored.selection, first = hours[0];
-    const format = dt => new Intl.DateTimeFormat("de-DE", { dateStyle: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(dt));
+    const format = dt => new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(dt));
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
     const tint = value => value == null ? "#94a3b8" : value >= 10 ? "#22a06b" : value >= 4 ? "#88b65d" : value >= 0 ? "#e9b44c" : "#d66b61";
     const marked = new Set(selection.marked.map(hour => hour.datetime));
