@@ -1,2 +1,12 @@
 node_modules/
 .DS_Store
+
+AGENTS.md
+AGENTS.override.md
+ANTIGRAVITY_REVIEW.md
+REVIEW_*.md
+*_REVIEW.md
+*_REPORT.md
+*.review.md
+*.work.md
+*.tmp.md
