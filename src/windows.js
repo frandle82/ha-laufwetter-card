@@ -11,7 +11,7 @@ const daylight = (value, sun = {}) => {
 export const severeRisk = risk => /Gewitter|Unwetter|Sturm- oder Orkanböen|mögliche Glätte|extreme Temperatur|Starkregen/.test(risk);
 export const hasSevereRisk = hour => Boolean(hour.warning) || (hour.risks || []).some(severeRisk);
 
-export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
+export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), includePast = false, allowNightRuns = false, excludeSevereRisks = true, requireMarked = false, sun = {}, daylightStatus: getDaylightStatus } = {}) {
   const needed = Math.max(1, Math.ceil(Number(duration) / 60));
   const candidates = hours.filter(hour => includePast || Date.parse(hour.datetime) >= now)
     .sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime));
@@ -25,7 +25,7 @@ export function analyzeRunWindows(hours, { duration = 60, now = Date.now(), incl
     const risks = [...new Set(window.flatMap(hour => hour.risks || []))];
     const average = window.reduce((sum, hour) => sum + hour.points, 0) / window.length;
     const severe = risks.filter(severeRisk);
-    if (severe.length || window.some(hasSevereRisk)) { exclusions.push({ ...details, reason: severe.length ? severe.join(", ") : "offizielle Wetterwarnung" }); continue; }
+    if (excludeSevereRisks && (severe.length || window.some(hasSevereRisk))) { exclusions.push({ ...details, reason: severe.length ? severe.join(", ") : "offizielle Wetterwarnung" }); continue; }
     const quality = average;
     if (!best || quality > best.quality) best = { hours: window, average, risks, quality };
   }

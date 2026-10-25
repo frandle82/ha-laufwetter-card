@@ -5,7 +5,9 @@ import { normalizeForecast } from "../src/forecast.js";
 
 test("temperature formula follows additive bands", () => {
   assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 10 }, { now: "2026-01-02T12:00:00Z" }).points, 5);
+  assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 15 }, { now: "2026-01-02T12:00:00Z" }).points, 10);
   assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 17 }, { now: "2026-01-02T12:00:00Z" }).points, 10);
+  assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 19 }, { now: "2026-01-02T12:00:00Z" }).points, 10);
   assert.equal(scoreHour({ datetime: "2026-01-01T12:00:00Z", temperature: 22 }, { now: "2026-01-02T12:00:00Z" }).points, 0);
 });
 test("proximity and humidity are additive", () => assert.equal(scoreHour({ datetime: "2026-01-02T12:00:00Z", temperature: 17, humidity: 80 }, { now: "2026-01-01T01:00:00Z" }).points, 3));

@@ -104,6 +104,7 @@ test("allows marked strong gusts but excludes severe hazards", () => {
   const storm = gusts.map(hour => ({ ...hour, risks: ["Sturm- oder Orkanböen"] }));
   assert.equal(selectRunWindow(storm, { duration: 60, includePast: true, requireMarked: true }), null);
   assert.match(analyzeRunWindows(storm, { duration: 60, includePast: true, requireMarked: true }).exclusions[0].reason, /Sturm/);
+  assert.ok(selectRunWindow(storm, { duration: 60, includePast: true, requireMarked: true, excludeSevereRisks: false }));
 });
 test("separates complete today from remaining runs and keeps tomorrow independent", () => {
   const hours = [
@@ -127,13 +128,12 @@ test("renders the passed-today message instead of a technical exclusion", () => 
   assert.match(card.shadowRoot.innerHTML, /Alle empfohlenen Laufzeiten für heute sind vorbei\./);
   assert.doesNotMatch(card.shadowRoot.innerHTML, /Keine Laufzeit: nicht relativ markiert/);
 }));
-test("does not claim passed runs without historical forecast and summarizes night-only tomorrow", () => {
+test("does not claim passed runs without history and retains relatively marked night hours", () => {
   const noHistory = overview([{ datetime: "2026-10-25T16:30:00+01:00", points: 8, marked: true, risks: [] }]);
   assert.equal(noHistory.todayMessage, "Heute keine empfohlenen Laufzeiten.");
   const nightOnly = overview([{ datetime: "2026-10-26T02:00:00+01:00", points: 8, marked: true, risks: [] }]);
-  assert.equal(nightOnly.tomorrowSummary.window, null);
-  assert.equal(nightOnly.tomorrowMessage, "Morgen keine empfohlenen Laufzeiten.");
-  assert.match(nightOnly.tomorrowSummary.exclusions[0].reason, /Nacht/);
+  assert.ok(nightOnly.tomorrowSummary.window);
+  assert.ok(nightOnly.selected.has("2026-10-26T02:00:00+01:00"));
 });
 test("keeps daily run-window selection independent across midnight", () => {
   const todayOnly = overview([
@@ -215,6 +215,32 @@ test("keeps the native timeline container and both scroll directions across rend
   assert.equal(card.shadowRoot.timeline, timeline);
   assert.equal(timeline.scrollLeft, 18);
   assert.equal(timeline._laufwetterBound, true);
+});
+test("ignores unrelated Home Assistant state updates", () => {
+  const card = new Card(); card.setConfig(config); card.loading = true;
+  let renders = 0; card.render = () => { renders++; };
+  const weather = states["weather.schwerin"], haConfig = { time_zone: "Europe/Berlin" };
+  card.hass = { states: { "weather.schwerin": weather }, config: haConfig };
+  card.hass = { states: { "weather.schwerin": weather, "sensor.unrelated": { state: "1" } }, config: haConfig };
+  assert.equal(renders, 1);
+});
+test("restores the same UTC hour when forecast columns shift", () => {
+  const card = new Card(); card.setConfig(config);
+  const timeline = card.shadowRoot.timeline;
+  timeline.clientWidth = 48; timeline.scrollWidth = 96;
+  timeline.blocks = [
+    { offsetLeft: 0, offsetWidth: 24, dataset: { datetime: "2026-10-26T07:00:00Z" } },
+    { offsetLeft: 24, offsetWidth: 24, dataset: { datetime: "2026-10-26T08:00:00Z" } },
+    { offsetLeft: 48, offsetWidth: 24, dataset: { datetime: "2026-10-26T09:00:00Z" } }
+  ];
+  card.timelineTouched = true; timeline.scrollLeft = 25; card.rememberTimeline(timeline);
+  timeline.blocks = [
+    { offsetLeft: 0, offsetWidth: 24, dataset: { datetime: "2026-10-26T08:00:00Z" } },
+    { offsetLeft: 24, offsetWidth: 24, dataset: { datetime: "2026-10-26T09:00:00Z" } }
+  ];
+  card.bindTimeline();
+  assert.equal(timeline.scrollLeft, 1);
+  assert.equal(card.timelineAnchor.datetime, "2026-10-26T08:00:00Z");
 });
 test("keeps latest scroll while a previous animation frame is pending", () => {
   const request = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
