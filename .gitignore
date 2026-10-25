@@ -1,8 +1,9 @@
 node_modules/
 .DS_Store
 
-AGENTS.md
+/AGENTS.md
 AGENTS.override.md
+/.agents/
 ANTIGRAVITY_REVIEW.md
 REVIEW_*.md
 *_REVIEW.md
