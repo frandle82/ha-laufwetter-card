@@ -96,6 +96,8 @@ class LaufwetterCard extends HTMLElement {
     timeline.scrollLeft = this.timelineScrollLeft;
     this.traceScroll("render-restore", timeline);
     this.updateTimelineDate(timeline);
+    if (timeline._laufwetterBound) return;
+    timeline._laufwetterBound = true;
     timeline.addEventListener?.("scroll", () => {
       this.timelineScrollLeft = timeline.scrollLeft;
       this.traceScroll("scroll", timeline);
@@ -106,6 +108,14 @@ class LaufwetterCard extends HTMLElement {
       if (globalThis.requestAnimationFrame) this.timelineFrame = globalThis.requestAnimationFrame(update); else update();
     });
     timeline.addEventListener?.("pointerdown", () => this.traceScroll("pointerdown", timeline));
+  }
+  keepTimeline() {
+    const previous = this.timeline;
+    const current = this.shadowRoot?.querySelector?.(".timeline");
+    if (!previous || !current || previous === current || typeof current.replaceWith !== "function") { this.timeline = current; return; }
+    previous.innerHTML = current.innerHTML;
+    current.replaceWith(previous);
+    this.timeline = previous;
   }
   buildView() {
     const now = Date.now(), timeZone = this._hass?.config?.time_zone, daylight = hour => daylightStatus(hour, this._hass?.config);
@@ -132,6 +142,7 @@ class LaufwetterCard extends HTMLElement {
     const { daylight, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours } = this.buildView();
     const debug = this.config.debug ? renderDebug({ entity: this.config.entity, units: this.units, timeZone, scoredResult, hours, selected, daylight, summaries: [todayFullSummary, todaySummary, tomorrowSummary], rawForecast: this.rawForecast, error: this.error, scrollTrace: this.scrollTrace }) : "";
     this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><ha-card>${renderHeader(this.config)}${renderDaySummary("Heute", today, todaySummary, todayMessage, timeZone)}${renderTimeline(chartHours, selected, hour => daylight(hour) === "night", timeZone)}${renderDaySummary("Morgen", tomorrow, tomorrowSummary, tomorrowMessage, timeZone)}${this.loading ? `<div class="state meta">Prognose wird geladen …</div>` : ""}${this.error ? `<div class="state state--error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
+    this.keepTimeline();
     this.bindTimeline();
   }
   getCardSize() { return 4; }

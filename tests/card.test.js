@@ -10,7 +10,8 @@ class TestShadowRoot {
   set innerHTML(value) {
     this.html = value;
     this.date = { textContent: "" };
-    this.timeline = { scrollLeft: 0, blocks: [], addEventListener: (event, listener) => { this.timeline[`${event}Listener`] = listener; if (event === "scroll") this.timeline.listener = listener; }, querySelectorAll: () => this.timeline.blocks };
+    const root = this;
+    this.timeline = { scrollLeft: 0, blocks: [], innerHTML: "", addEventListener(event, listener) { this[`${event}Listener`] = listener; if (event === "scroll") this.listener = listener; }, querySelectorAll() { return this.blocks; }, replaceWith(node) { root.timeline = node; } };
   }
   get innerHTML() { return this.html; }
   querySelector(selector) { return selector === ".timeline" ? this.timeline : selector === ".timeline-date" ? this.date : null; }
@@ -197,9 +198,23 @@ test("preserves timeline scroll after a forecast refresh", async () => {
   const card = new Card(); card.setConfig(config);
   card.hass = { states, config: { unit_system: { temperature: "°C", wind_speed: "km/h" } }, callWS: async () => ({ response: { "weather.schwerin": { forecast: current } } }) };
   await new Promise(resolve => setTimeout(resolve, 0));
-  card.shadowRoot.timeline.scrollLeft = 48; card.lastFetch = 0;
+  const timeline = card.shadowRoot.timeline; timeline.scrollLeft = 48; card.lastFetch = 0;
   await card.fetchForecast();
+  assert.equal(card.shadowRoot.timeline, timeline);
   assert.equal(card.shadowRoot.timeline.scrollLeft, 48);
+});
+test("keeps the native timeline container and both scroll directions across renders", () => {
+  const card = new Card(); card.setConfig(config);
+  const timeline = card.shadowRoot.timeline;
+  timeline.scrollLeft = 96; timeline.listener();
+  card.render();
+  assert.equal(card.shadowRoot.timeline, timeline);
+  assert.equal(timeline.scrollLeft, 96);
+  timeline.scrollLeft = 18; timeline.listener();
+  card.render(); card.render();
+  assert.equal(card.shadowRoot.timeline, timeline);
+  assert.equal(timeline.scrollLeft, 18);
+  assert.equal(timeline._laufwetterBound, true);
 });
 test("keeps latest scroll while a previous animation frame is pending", () => {
   const request = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;

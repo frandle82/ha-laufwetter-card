@@ -274,7 +274,7 @@ var CARD_STYLES = `
 :host{display:block}ha-card{display:block;padding:14px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border-radius:var(--ha-card-border-radius,12px);font-family:var(--primary-font-family,sans-serif)}
 .card-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:1px solid var(--divider-color)}.card-title{font-size:16px;font-weight:600;line-height:1.25}.header-icon,.weather-icon{width:18px;height:18px;color:var(--secondary-text-color)}.location,.meta{font-size:12px;color:var(--secondary-text-color)}.location{display:block;margin-top:2px}
 .day-summary{position:relative;padding:10px 0;border-bottom:1px solid var(--divider-color)}.day-summary__title{margin:0;font-size:13px;font-weight:600;line-height:1.3}.day-summary__window{margin-top:4px;font-size:18px;font-weight:600;line-height:1.3}.day-summary__metrics{margin-top:3px;padding-right:24px;font-size:12px;color:var(--secondary-text-color);line-height:1.4}.weather-icon{position:absolute;right:0;top:13px}
-.timeline-section{padding:10px 0;border-bottom:1px solid var(--divider-color)}.timeline-heading{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600}.timeline-heading time{font-weight:400;color:var(--secondary-text-color)}.timeline{display:flex;align-items:flex-start;gap:3px;overflow-x:auto;margin:0 -2px;padding:0 2px 3px;scroll-snap-type:x proximity}.timeline-hour{min-width:24px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;line-height:1;scroll-snap-align:start}.timeline-hour--day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:3px}.timeline-bar{width:100%;height:34px;box-sizing:border-box;border-radius:4px}.timeline-label{color:var(--secondary-text-color)}.timeline-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px 8px;margin-top:8px;font-size:10px;color:var(--secondary-text-color)}.timeline-legend span::before{content:"";display:inline-block;width:7px;height:7px;margin-right:3px;border-radius:2px;background:currentColor}.legend-night{color:#8b95a5}.legend-bad{color:#d66b61}.legend-ok{color:#e9b44c}.legend-best{color:#22a06b}
+.timeline-section{padding:10px 0;border-bottom:1px solid var(--divider-color)}.timeline-heading{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600}.timeline-heading time{font-weight:400;color:var(--secondary-text-color)}.timeline{display:flex;align-items:flex-start;gap:3px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;touch-action:pan-x;margin:0 -2px;padding:0 2px 3px;scrollbar-width:thin}.timeline-hour{flex:0 0 auto;min-width:24px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;line-height:1}.timeline-hour--day-start{border-left:1px solid var(--divider-color);padding-left:5px;margin-left:3px}.timeline-bar{width:100%;height:34px;box-sizing:border-box;border-radius:4px}.timeline-label{color:var(--secondary-text-color)}.timeline-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px 8px;margin-top:8px;font-size:10px;color:var(--secondary-text-color)}.timeline-legend span::before{content:"";display:inline-block;width:7px;height:7px;margin-right:3px;border-radius:2px;background:currentColor}.legend-night{color:#8b95a5}.legend-bad{color:#d66b61}.legend-ok{color:#e9b44c}.legend-best{color:#22a06b}
 .state{margin-top:8px;font-size:12px}.state--error{color:var(--error-color)}details{margin-top:10px}.debug p{font-size:11px;line-height:1.4}.debug-table{max-height:280px;overflow:auto;border:1px solid var(--divider-color)}table{border-collapse:collapse;font-size:10px;white-space:nowrap}th,td{padding:4px 6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color)}th{position:sticky;top:0;background:var(--ha-card-background,var(--card-background-color));font-weight:600}small{color:var(--secondary-text-color)}@media(max-width:360px){ha-card{padding:12px}.day-summary__window{font-size:17px}.timeline-hour{min-width:22px}}
 `;
 
@@ -430,6 +430,8 @@ var LaufwetterCard = class extends HTMLElement {
     timeline.scrollLeft = this.timelineScrollLeft;
     this.traceScroll("render-restore", timeline);
     this.updateTimelineDate(timeline);
+    if (timeline._laufwetterBound) return;
+    timeline._laufwetterBound = true;
     timeline.addEventListener?.("scroll", () => {
       this.timelineScrollLeft = timeline.scrollLeft;
       this.traceScroll("scroll", timeline);
@@ -442,6 +444,17 @@ var LaufwetterCard = class extends HTMLElement {
       else update();
     });
     timeline.addEventListener?.("pointerdown", () => this.traceScroll("pointerdown", timeline));
+  }
+  keepTimeline() {
+    const previous = this.timeline;
+    const current = this.shadowRoot?.querySelector?.(".timeline");
+    if (!previous || !current || previous === current || typeof current.replaceWith !== "function") {
+      this.timeline = current;
+      return;
+    }
+    previous.innerHTML = current.innerHTML;
+    current.replaceWith(previous);
+    this.timeline = previous;
   }
   buildView() {
     const now = Date.now(), timeZone = this._hass?.config?.time_zone, daylight2 = (hour) => daylightStatus(hour, this._hass?.config);
@@ -468,6 +481,7 @@ var LaufwetterCard = class extends HTMLElement {
     const { daylight: daylight2, timeZone, scoredResult, hours, today, tomorrow, todayFullSummary, todaySummary, tomorrowSummary, todayMessage, tomorrowMessage, selected, chartHours } = this.buildView();
     const debug = this.config.debug ? renderDebug({ entity: this.config.entity, units: this.units, timeZone, scoredResult, hours, selected, daylight: daylight2, summaries: [todayFullSummary, todaySummary, tomorrowSummary], rawForecast: this.rawForecast, error: this.error, scrollTrace: this.scrollTrace }) : "";
     this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><ha-card>${renderHeader(this.config)}${renderDaySummary("Heute", today, todaySummary, todayMessage, timeZone)}${renderTimeline(chartHours, selected, (hour) => daylight2(hour) === "night", timeZone)}${renderDaySummary("Morgen", tomorrow, tomorrowSummary, tomorrowMessage, timeZone)}${this.loading ? `<div class="state meta">Prognose wird geladen \u2026</div>` : ""}${this.error ? `<div class="state state--error">${esc(this.error)}</div>` : ""}${debug}</ha-card>`;
+    this.keepTimeline();
     this.bindTimeline();
   }
   getCardSize() {

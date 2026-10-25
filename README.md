@@ -36,6 +36,8 @@ Die Karte ruft keine Daten von laufwetter.de ab. Home-Assistant-Anbieter liefern
 
 Mit `debug: true` zeigt die Karte je Prognosestunde Roh-/Normalwerte, Wind und Böen getrennt, Niederschlagsmenge und -wahrscheinlichkeit getrennt, Score-Komponenten, Klassifizierung, Ausschlussgrund sowie eine kurze Diagramm-Scrollspur. Tagesgrenzen, Datum und Uhrzeit verwenden `hass.config.time_zone`, nicht die Browser-Zeitzone. `warning_entity` kann eine vorhandene Home-Assistant-Warnentität anbinden.
 
+Das Stundenband ist ein eigener nativer Horizontal-Scrollbereich. Die Position bleibt bei Karten- und Forecast-Updates erhalten; sie wird nur bei einer neuen Karteninstanz initialisiert.
+
 ## Weiterentwicklung
 Repository klonen und `npm install` ausführen. Die Berechnung liegt in `src/scoring.js`, die Wetterdaten-Normalisierung in `src/forecast.js`, die tagesgenaue Tageslichtberechnung in `src/daylight.js` und die Darstellung in `src/card.js`.
 
