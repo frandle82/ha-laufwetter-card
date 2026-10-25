@@ -32,6 +32,13 @@ test("uses configurable title and optional location below the title", () => {
   assert.match(card.shadowRoot.innerHTML, /Schwerin/);
   assert.doesNotMatch(card.shadowRoot.innerHTML, /Laufwetter-Punktzahl|Sehr gut|Eingeschränkt|Ungünstig/);
 });
+test("renders reusable header, summaries and scrollable timeline structure", () => {
+  const card = new Card(); card.setConfig(config);
+  assert.match(card.shadowRoot.innerHTML, /card-header/);
+  assert.match(card.shadowRoot.innerHTML, /day-summary/);
+  assert.match(card.shadowRoot.innerHTML, /overflow-x:auto/);
+  assert.match(card.shadowRoot.innerHTML, /timeline-hour/);
+});
 test("selects a complete, contiguous run window", () => {
   const hours = forecast.map(hour => ({ ...hour, points: 12, risks: [] }));
   const window = selectRunWindow(hours, { duration: 90, includePast: true });
